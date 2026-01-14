@@ -1,16 +1,5 @@
-/**
- * OpenAI service - handles transaction classification and categorization using GPT
- */
-
 import OpenAI from "openai";
 
-// =============================================================================
-// Transaction Classification Types (Agent 1)
-// =============================================================================
-
-/**
- * Transaction types that can be classified
- */
 export type TransactionType =
   | "purchase"
   | "incoming"
@@ -18,14 +7,8 @@ export type TransactionType =
   | "transfer"
   | "payment";
 
-/**
- * Payment methods
- */
 export type PaymentMethod = "llave" | "PSE" | "card" | "ACH" | "other";
 
-/**
- * Classified transaction data
- */
 export interface ClassifiedTransaction {
   type: TransactionType;
   amount: number;
@@ -34,22 +17,12 @@ export interface ClassifiedTransaction {
   method: PaymentMethod;
 }
 
-/**
- * OpenAI classification response
- */
 export interface TransactionClassificationResponse {
   should_track: boolean;
   transaction: ClassifiedTransaction | null;
   exclusion_reason: string | null;
 }
 
-// =============================================================================
-// Transaction Categorization Types (Agent 2)
-// =============================================================================
-
-/**
- * Transaction categories
- */
 export type TransactionCategory =
   | "food_dining"
   | "transportation"
@@ -63,9 +36,6 @@ export type TransactionCategory =
   | "income"
   | "other";
 
-/**
- * Transaction subcategories
- */
 export type TransactionSubcategory =
   | "groceries"
   | "restaurants"
@@ -118,14 +88,8 @@ export type TransactionSubcategory =
   | "investment_return"
   | "uncategorized";
 
-/**
- * Confidence level for categorization
- */
 export type ConfidenceLevel = "high" | "medium" | "low";
 
-/**
- * OpenAI categorization response
- */
 export interface TransactionCategorizationResponse {
   category: TransactionCategory;
   subcategory: TransactionSubcategory;
@@ -133,13 +97,6 @@ export interface TransactionCategorizationResponse {
   notes: string | null;
 }
 
-// =============================================================================
-// Transaction Time Extraction Types (Agent 3)
-// =============================================================================
-
-/**
- * OpenAI time extraction response
- */
 export interface TransactionTimeExtractionResponse {
   transaction_datetime: string | null;
   transaction_date: string | null;
@@ -148,13 +105,6 @@ export interface TransactionTimeExtractionResponse {
   notes: string | null;
 }
 
-// =============================================================================
-// Internal Movement Detection Types (Agent 4)
-// =============================================================================
-
-/**
- * Transaction summary for internal movement detection
- */
 export interface TransactionSummary {
   id: string;
   amount: number;
@@ -163,9 +113,6 @@ export interface TransactionSummary {
   emailBody: string;
 }
 
-/**
- * OpenAI internal movement detection response
- */
 export interface InternalMovementDetectionResponse {
   internal_movement_ids: string[];
   pairs: Array<{
@@ -178,22 +125,12 @@ export interface InternalMovementDetectionResponse {
   notes: string | null;
 }
 
-/**
- * Combined result from all agents
- */
 export interface TransactionProcessingResult {
   classification: TransactionClassificationResponse;
   categorization: TransactionCategorizationResponse;
   timeExtraction: TransactionTimeExtractionResponse;
 }
 
-// =============================================================================
-// Classification Agent (Agent 1) - System Prompt & Schema
-// =============================================================================
-
-/**
- * System prompt for transaction classification
- */
 const CLASSIFICATION_SYSTEM_PROMPT = `Transaction Classification Agent
 You are a transaction classifier for a Colombian bank (Davivienda). Your task is to analyze transaction notifications and determine if they should be tracked.
 
@@ -215,9 +152,6 @@ EXCLUDE these transaction types:
 
 Input: Raw transaction notification text`;
 
-/**
- * JSON Schema for classification structured output
- */
 const CLASSIFICATION_SCHEMA = {
   name: "transaction_classification",
   strict: true,
@@ -273,13 +207,6 @@ const CLASSIFICATION_SCHEMA = {
   },
 };
 
-// =============================================================================
-// Categorization Agent (Agent 2) - System Prompt & Schema
-// =============================================================================
-
-/**
- * System prompt for transaction categorization
- */
 const CATEGORIZATION_SYSTEM_PROMPT = `You are a transaction categorizer. Given a transaction description, classify it into the appropriate category and subcategory.
 
 **Categories and Subcategories:**
@@ -358,9 +285,6 @@ const CATEGORIZATION_SYSTEM_PROMPT = `You are a transaction categorizer. Given a
 
 Analyze the transaction and assign the most appropriate category and subcategory.`;
 
-/**
- * JSON Schema for categorization structured output
- */
 const CATEGORIZATION_SCHEMA = {
   name: "transaction_categorization",
   strict: true,
@@ -451,13 +375,6 @@ const CATEGORIZATION_SCHEMA = {
   },
 };
 
-// =============================================================================
-// Time Extraction Agent (Agent 3) - System Prompt & Schema
-// =============================================================================
-
-/**
- * System prompt for transaction time extraction
- */
 const TIME_EXTRACTION_SYSTEM_PROMPT = `Transaction Time Extraction Agent
 You are a time extraction agent for Colombian bank transaction notifications. Your task is to extract the exact date and time when the transaction occurred according to the bank notification.
 
@@ -481,9 +398,6 @@ If no transaction time is found, set all date/time fields to null and extraction
 
 Input: Raw transaction notification text`;
 
-/**
- * JSON Schema for time extraction structured output
- */
 const TIME_EXTRACTION_SCHEMA = {
   name: "transaction_time_extraction",
   strict: true,
@@ -517,13 +431,6 @@ const TIME_EXTRACTION_SCHEMA = {
   },
 };
 
-// =============================================================================
-// OpenAI Client
-// =============================================================================
-
-/**
- * Get OpenAI client
- */
 let openaiClient: OpenAI | null = null;
 const OPENAI_REQUEST_TIMEOUT_MS = 30000;
 
@@ -548,8 +455,7 @@ async function createChatCompletionWithTimeout(
     OPENAI_REQUEST_TIMEOUT_MS
   );
   try {
-    return await client.chat.completions.create({
-      ...params,
+    return await client.chat.completions.create(params, {
       signal: controller.signal,
     });
   } finally {
@@ -557,20 +463,10 @@ async function createChatCompletionWithTimeout(
   }
 }
 
-// =============================================================================
-// Agent 1: Transaction Classification
-// =============================================================================
-
-/**
- * Classify a transaction email using OpenAI (Agent 1)
- * Determines if the transaction should be tracked and extracts basic info
- */
 export async function classifyTransaction(
   subject: string,
   body: string
 ): Promise<TransactionClassificationResponse> {
-  console.log("🤖 [Agent 1] Classifying transaction...");
-
   const client = getOpenAIClient();
   const userMessage = JSON.stringify({ subject, body });
 
@@ -591,24 +487,13 @@ export async function classifyTransaction(
     throw new Error("No response content from OpenAI (classification)");
   }
 
-  console.log("✅ [Agent 1] Classification complete");
   return JSON.parse(content) as TransactionClassificationResponse;
 }
 
-// =============================================================================
-// Agent 2: Transaction Categorization
-// =============================================================================
-
-/**
- * Categorize a transaction email using OpenAI (Agent 2)
- * Assigns category, subcategory, and confidence level
- */
 export async function categorizeTransaction(
   subject: string,
   body: string
 ): Promise<TransactionCategorizationResponse> {
-  console.log("🤖 [Agent 2] Categorizing transaction...");
-
   const client = getOpenAIClient();
   const userMessage = JSON.stringify({ subject, body });
 
@@ -629,24 +514,13 @@ export async function categorizeTransaction(
     throw new Error("No response content from OpenAI (categorization)");
   }
 
-  console.log("✅ [Agent 2] Categorization complete");
   return JSON.parse(content) as TransactionCategorizationResponse;
 }
 
-// =============================================================================
-// Agent 3: Transaction Time Extraction
-// =============================================================================
-
-/**
- * Extract transaction time from email using OpenAI (Agent 3)
- * Extracts the exact date and time when the transaction occurred
- */
 export async function extractTransactionTime(
   subject: string,
   body: string
 ): Promise<TransactionTimeExtractionResponse> {
-  console.log("🤖 [Agent 3] Extracting transaction time...");
-
   const client = getOpenAIClient();
   const userMessage = JSON.stringify({ subject, body });
 
@@ -667,17 +541,9 @@ export async function extractTransactionTime(
     throw new Error("No response content from OpenAI (time extraction)");
   }
 
-  console.log("✅ [Agent 3] Time extraction complete");
   return JSON.parse(content) as TransactionTimeExtractionResponse;
 }
 
-// =============================================================================
-// Agent 4: Internal Movement Detection
-// =============================================================================
-
-/**
- * System prompt for internal movement detection
- */
 const INTERNAL_MOVEMENT_SYSTEM_PROMPT = `Internal Movement Detection Agent
 You are an agent that detects internal transfers between a user's own bank accounts.
 
@@ -704,9 +570,6 @@ IMPORTANT:
 
 Output the IDs of transactions that are internal movements, along with the pairs you identified.`;
 
-/**
- * JSON Schema for internal movement detection structured output
- */
 const INTERNAL_MOVEMENT_SCHEMA = {
   name: "internal_movement_detection",
   strict: true,
@@ -747,17 +610,9 @@ const INTERNAL_MOVEMENT_SCHEMA = {
   },
 };
 
-/**
- * Detect internal movements among a list of transactions (Agent 4)
- * Identifies transactions that are transfers between the user's own accounts
- */
 export async function detectInternalMovements(
   transactions: TransactionSummary[]
 ): Promise<InternalMovementDetectionResponse> {
-  console.log(
-    `🤖 [Agent 4] Detecting internal movements among ${transactions.length} transactions...`
-  );
-
   if (transactions.length === 0) {
     return {
       internal_movement_ids: [],
@@ -788,51 +643,18 @@ export async function detectInternalMovements(
     );
   }
 
-  const result = JSON.parse(content) as InternalMovementDetectionResponse;
-  console.log(
-    `✅ [Agent 4] Internal movement detection complete. Found ${result.internal_movement_ids.length} internal movements.`
-  );
-  return result;
+  return JSON.parse(content) as InternalMovementDetectionResponse;
 }
 
-// =============================================================================
-// Combined Processing (All Agents in Parallel)
-// =============================================================================
-
-/**
- * Process a transaction with both agents running in parallel
- * Agent 1: Classification (should_track, type, amount, etc.)
- * Agent 2: Categorization (category, subcategory, confidence)
- */
 export async function processTransactionWithAgents(
   subject: string,
   body: string
 ): Promise<TransactionProcessingResult> {
-  console.log("🚀 Processing transaction with all agents in parallel...");
-
-  // Run all agents in parallel with individual error catching
   const [classification, categorization, timeExtraction] = await Promise.all([
-    classifyTransaction(subject, body).catch((err) => {
-      console.error("❌ [Agent 1] Classification failed:", err);
-      console.error("❌ [Agent 1] Error message:", err.message);
-      console.error("❌ [Agent 1] Error stack:", err.stack);
-      throw err;
-    }),
-    categorizeTransaction(subject, body).catch((err) => {
-      console.error("❌ [Agent 2] Categorization failed:", err);
-      console.error("❌ [Agent 2] Error message:", err.message);
-      console.error("❌ [Agent 2] Error stack:", err.stack);
-      throw err;
-    }),
-    extractTransactionTime(subject, body).catch((err) => {
-      console.error("❌ [Agent 3] Time extraction failed:", err);
-      console.error("❌ [Agent 3] Error message:", err.message);
-      console.error("❌ [Agent 3] Error stack:", err.stack);
-      throw err;
-    }),
+    classifyTransaction(subject, body),
+    categorizeTransaction(subject, body),
+    extractTransactionTime(subject, body),
   ]);
-
-  console.log("✅ All agents completed");
 
   return {
     classification,

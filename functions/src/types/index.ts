@@ -1,12 +1,4 @@
-/**
- * Type definitions for OneFinance Gmail Integration
- */
-
 import { gmail_v1 } from "googleapis";
-
-// =============================================================================
-// Firestore Collection Names
-// =============================================================================
 
 export const COLLECTIONS = {
   CONFIG: "config",
@@ -19,22 +11,12 @@ export const CONFIG_DOCS = {
   GMAIL: "gmail",
 } as const;
 
-// =============================================================================
-// OAuth & Configuration Types
-// =============================================================================
-
-/**
- * OAuth configuration for Gmail API
- */
 export interface OAuthConfig {
   clientId: string;
   clientSecret: string;
   redirectUri: string;
 }
 
-/**
- * OAuth tokens stored in Firestore
- */
 export interface GmailTokens {
   access_token?: string;
   refresh_token?: string;
@@ -43,17 +25,11 @@ export interface GmailTokens {
   expiry_date?: number;
 }
 
-/**
- * Gmail configuration document stored in Firestore
- */
 export interface GmailConfig {
   tokens: GmailTokens;
   lastHistoryId?: string;
 }
 
-/**
- * Extracted email headers
- */
 export interface EmailHeaders {
   id: string;
   subject: string;
@@ -61,9 +37,6 @@ export interface EmailHeaders {
   date: string;
 }
 
-/**
- * Email document stored in Firestore
- */
 export interface EmailDocument {
   subject: string;
   from: string;
@@ -75,9 +48,6 @@ export interface EmailDocument {
   processingStartedAt?: FirebaseFirestore.FieldValue;
 }
 
-/**
- * Processed email response for API
- */
 export interface ProcessedEmail {
   id: string;
   subject: string;
@@ -86,45 +56,34 @@ export interface ProcessedEmail {
   bodyPreview: string;
 }
 
-/**
- * Gmail client with optional history ID
- */
 export interface GmailClientResult {
   gmail: gmail_v1.Gmail;
   lastHistoryId?: string;
 }
 
-/**
- * Pub/Sub notification data from Gmail
- */
 export interface GmailPubSubNotification {
   emailAddress: string;
   historyId: string;
 }
 
-/**
- * Pub/Sub message structure
- */
 export interface PubSubMessage {
   data: string;
   messageId?: string;
   publishTime?: string;
 }
 
-/**
- * Watch renewal response
- */
 export interface WatchResponse {
   success: boolean;
+  message?: string;
   expiration?: string;
   expirationDate?: string;
   error?: string;
 }
 
-/**
- * Labels list response
- */
 export interface LabelsResponse {
+  success?: boolean;
+  message?: string;
+  count?: number;
   labels: Array<{
     id: string;
     name: string;
@@ -132,9 +91,6 @@ export interface LabelsResponse {
   error?: string;
 }
 
-/**
- * Test process emails response
- */
 export interface TestProcessEmailsResponse {
   success: boolean;
   message?: string;
@@ -143,9 +99,6 @@ export interface TestProcessEmailsResponse {
   error?: string;
 }
 
-/**
- * Gmail message part (for recursive body extraction)
- */
 export interface GmailMessagePart {
   mimeType?: string;
   body?: {
@@ -154,21 +107,12 @@ export interface GmailMessagePart {
   parts?: GmailMessagePart[];
 }
 
-// =============================================================================
-// API Response Types
-// =============================================================================
-
-/**
- * Standard error response
- */
 export interface ErrorResponse {
-  error: string;
   success?: false;
+  error: string;
+  message?: string;
 }
 
-/**
- * Type guard for checking if a message has a valid ID
- */
 export function hasValidId(
   msg: gmail_v1.Schema$Message | undefined
 ): msg is gmail_v1.Schema$Message & { id: string } {

@@ -1,55 +1,27 @@
-/**
- * Email queue processor - processes unprocessed emails
- */
-
 import { onSchedule } from "firebase-functions/v2/scheduler";
 import { onRequest, HttpsOptions } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
 import { v4 as uuidv4 } from "uuid";
-import { COLLECTIONS, ErrorResponse } from "../types";
-import { getErrorMessage, validateAuth } from "../utils";
+import { COLLECTIONS } from "../types";
+import { getErrorMessage, validateAuth, isFirestoreIndexError } from "../utils";
 import {
   processTransactionWithAgents,
   detectInternalMovements,
   TransactionSummary,
 } from "../services/openai";
 
-/**
- * Maximum timeout for processing functions (9 minutes = 540 seconds)
- */
 const MAX_TIMEOUT_SECONDS = 540;
-
-/**
- * Safety buffer before timeout to allow graceful shutdown (30 seconds)
- */
 const TIMEOUT_BUFFER_MS = 30 * 1000;
-
-/**
- * Default number of emails to process per batch
- */
 const DEFAULT_BATCH_SIZE = 10;
-
-/**
- * Processing lock timeout (15 minutes)
- */
 const PROCESSING_LOCK_TIMEOUT_MS = 15 * 60 * 1000;
 
-/**
- * HTTP function options with maximum timeout
- */
 const httpOptions: HttpsOptions = {
   timeoutSeconds: MAX_TIMEOUT_SECONDS,
   memory: "512MiB",
 };
 
-/**
- * Process job status
- */
 type ProcessJobStatus = "pending" | "running" | "completed" | "failed";
 
-/**
- * Process job document stored in Firestore
- */
 interface ProcessJob {
   status: ProcessJobStatus;
   limit: number;
@@ -64,20 +36,15 @@ interface ProcessJob {
   completedAt?: FirebaseFirestore.FieldValue | FirebaseFirestore.Timestamp;
 }
 
-/**
- * Response for starting a process job
- */
 interface StartProcessResponse {
   success: boolean;
   jobId: string;
   message: string;
 }
 
-/**
- * Response for getting process status
- */
 interface ProcessStatusResponse {
   success: boolean;
+  message?: string;
   jobId: string;
   status: ProcessJobStatus;
   processed: number;
@@ -91,18 +58,13 @@ interface ProcessStatusResponse {
   completedAt?: string;
 }
 
-/**
- * Response for unprocess endpoint
- */
 interface UnprocessResponse {
   success: boolean;
+  message?: string;
   updated: number;
   error?: string;
 }
 
-/**
- * Attempt to claim an email for processing to avoid duplicate work
- */
 async function claimEmailForProcessing(emailId: string): Promise<boolean> {
   const emailRef = admin
     .firestore()
@@ -145,9 +107,6 @@ async function claimEmailForProcessing(emailId: string): Promise<boolean> {
   });
 }
 
-/**
- * Release processing lock for an email
- */
 async function releaseEmailProcessing(emailId: string): Promise<void> {
   await admin.firestore().collection(COLLECTIONS.EMAILS).doc(emailId).update({
     processing: false,
@@ -155,29 +114,15 @@ async function releaseEmailProcessing(emailId: string): Promise<void> {
   });
 }
 
-/**
- * Process a single email document
- * Runs both classification and categorization agents in parallel
- * Stores the combined result in the transactions collection
- */
 async function processEmailDocument(
   emailId: string,
   emailData: FirebaseFirestore.DocumentData
 ): Promise<void> {
-  console.log(`   🔄 Processing email: ${emailId}`);
-
   const subject = emailData.subject as string;
   const body = emailData.body as string;
 
-  // Run both agents in parallel
-  console.log(`   🤖 Running classification and categorization agents...`);
   const result = await processTransactionWithAgents(subject, body);
 
-  console.log(
-    `   📊 Classification complete (should_track: ${result.classification.should_track})`
-  );
-
-  // Store the transaction result with classification, categorization, and time extraction
   const transactionId = uuidv4();
   await admin
     .firestore()
@@ -194,63 +139,52 @@ async function processEmailDocument(
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
-  console.log(`   💾 Transaction ${transactionId} saved`);
-
-  // Mark email as processed
   await admin.firestore().collection(COLLECTIONS.EMAILS).doc(emailId).update({
     processed: true,
     processing: false,
     processingStartedAt: admin.firestore.FieldValue.delete(),
   });
-
-  console.log(`   ✅ Email ${emailId} marked as processed`);
 }
 
-/**
- * Result of queue processing
- */
 interface QueueProcessResult {
   processed: number;
   remaining: number;
   timedOut: boolean;
   internalMovementsDetected: number;
+  indexError?: string;
 }
 
-/**
- * Detect and flag internal movements among recent transactions
- * Looks for transactions that haven't been checked for internal movements yet
- */
-async function detectAndFlagInternalMovements(): Promise<number> {
-  console.log("\n🔍 Starting internal movement detection...");
-
-  // Get all transactions that:
-  // 1. Have should_track = true
-  // 2. Haven't been checked for internal movements (internal_movement_checked != true)
-  const snapshot = await admin
-    .firestore()
-    .collection(COLLECTIONS.TRANSACTIONS)
-    .where("classification.should_track", "==", true)
-    .where("internal_movement_checked", "==", false)
-    .get();
-
-  if (snapshot.empty) {
-    console.log(
-      "📋 No unchecked transactions to analyze for internal movements"
-    );
-    return 0;
+async function detectAndFlagInternalMovements(): Promise<{
+  count: number;
+  indexError?: string;
+}> {
+  let snapshot;
+  try {
+    snapshot = await admin
+      .firestore()
+      .collection(COLLECTIONS.TRANSACTIONS)
+      .where("classification.should_track", "==", true)
+      .where("internal_movement_checked", "==", false)
+      .get();
+  } catch (error) {
+    if (isFirestoreIndexError(error)) {
+      return {
+        count: 0,
+        indexError: getErrorMessage(error),
+      };
+    }
+    throw error;
   }
 
-  console.log(
-    `📋 Found ${snapshot.size} transactions to analyze for internal movements`
-  );
+  if (snapshot.empty) {
+    return { count: 0 };
+  }
 
-  // Get the email bodies for each transaction
   const transactions: TransactionSummary[] = [];
   for (const doc of snapshot.docs) {
     const data = doc.data();
     const emailId = data.emailId as string;
 
-    // Get the email body
     const emailDoc = await admin
       .firestore()
       .collection(COLLECTIONS.EMAILS)
@@ -258,9 +192,6 @@ async function detectAndFlagInternalMovements(): Promise<number> {
       .get();
 
     if (!emailDoc.exists) {
-      console.warn(
-        `   ⚠️ Email ${emailId} not found for transaction ${doc.id}`
-      );
       continue;
     }
 
@@ -277,16 +208,11 @@ async function detectAndFlagInternalMovements(): Promise<number> {
   }
 
   if (transactions.length === 0) {
-    console.log("📋 No valid transactions to analyze");
-    return 0;
+    return { count: 0 };
   }
 
-  // Run the internal movement detection agent
   const result = await detectInternalMovements(transactions);
 
-  console.log(`🔗 Detected ${result.pairs.length} internal movement pairs`);
-
-  // Update all transactions: mark as checked, and flag internal movements
   const internalMovementIds = new Set(result.internal_movement_ids);
   let batch = admin.firestore().batch();
   let batchCount = 0;
@@ -309,44 +235,44 @@ async function detectAndFlagInternalMovements(): Promise<number> {
   if (batchCount > 0) {
     await batch.commit();
   }
-  console.log(
-    `✅ Updated ${snapshot.size} transactions (${internalMovementIds.size} flagged as internal movements)`
-  );
 
-  return internalMovementIds.size;
+  return { count: internalMovementIds.size };
 }
 
-/**
- * Core queue processing logic - shared between HTTP and scheduled functions
- * @param limit - Maximum number of emails to process
- * @param startTime - Start time to check for timeout
- * @param timeoutMs - Timeout in milliseconds
- */
 async function runQueueProcessor(
   limit: number = DEFAULT_BATCH_SIZE,
   startTime: number = Date.now(),
   timeoutMs: number = MAX_TIMEOUT_SECONDS * 1000 - TIMEOUT_BUFFER_MS
 ): Promise<QueueProcessResult> {
-  console.log(`📬 Processing email queue (limit: ${limit})...`);
-
-  // Query for unprocessed emails
-  const snapshot = await admin
-    .firestore()
-    .collection(COLLECTIONS.EMAILS)
-    .where("processed", "==", false)
-    .limit(limit)
-    .get();
-
-  console.log(`📋 Found ${snapshot.size} unprocessed emails`);
+  let snapshot;
+  try {
+    snapshot = await admin
+      .firestore()
+      .collection(COLLECTIONS.EMAILS)
+      .where("processed", "==", false)
+      .limit(limit)
+      .get();
+  } catch (error) {
+    if (isFirestoreIndexError(error)) {
+      return {
+        processed: 0,
+        remaining: 0,
+        timedOut: false,
+        internalMovementsDetected: 0,
+        indexError: getErrorMessage(error),
+      };
+    }
+    throw error;
+  }
 
   if (snapshot.empty) {
-    // Still run internal movement detection even if no new emails
-    const internalMovementsDetected = await detectAndFlagInternalMovements();
+    const internalResult = await detectAndFlagInternalMovements();
     return {
       processed: 0,
       remaining: 0,
       timedOut: false,
-      internalMovementsDetected,
+      internalMovementsDetected: internalResult.count,
+      indexError: internalResult.indexError,
     };
   }
 
@@ -354,12 +280,8 @@ async function runQueueProcessor(
   let timedOut = false;
 
   for (const doc of snapshot.docs) {
-    // Check if we're approaching timeout
     const elapsed = Date.now() - startTime;
     if (elapsed >= timeoutMs) {
-      console.log(
-        `⏱️ Approaching timeout after ${elapsed}ms, stopping gracefully`
-      );
       timedOut = true;
       break;
     }
@@ -372,49 +294,41 @@ async function runQueueProcessor(
     try {
       await processEmailDocument(doc.id, doc.data());
       processedCount++;
-    } catch (error) {
-      console.error(`   ❌ Error processing email ${doc.id}:`, error);
+    } catch {
       await releaseEmailProcessing(doc.id);
-      // Continue with next email
     }
   }
 
-  // Get remaining count
-  const remainingSnapshot = await admin
-    .firestore()
-    .collection(COLLECTIONS.EMAILS)
-    .where("processed", "==", false)
-    .count()
-    .get();
-  const remaining = remainingSnapshot.data().count;
+  let remainingCount = 0;
+  try {
+    const remainingSnapshot = await admin
+      .firestore()
+      .collection(COLLECTIONS.EMAILS)
+      .where("processed", "==", false)
+      .count()
+      .get();
+    remainingCount = remainingSnapshot.data().count;
+  } catch {
+    // Ignore count errors
+  }
 
-  console.log(
-    `✅ Queue processing complete! Processed ${processedCount} emails, ${remaining} remaining`
-  );
-
-  // Run internal movement detection after processing emails
   let internalMovementsDetected = 0;
+  let indexError: string | undefined;
   if (!timedOut) {
-    try {
-      internalMovementsDetected = await detectAndFlagInternalMovements();
-    } catch (error) {
-      console.error("❌ Error detecting internal movements:", error);
-    }
+    const internalResult = await detectAndFlagInternalMovements();
+    internalMovementsDetected = internalResult.count;
+    indexError = internalResult.indexError;
   }
 
   return {
     processed: processedCount,
-    remaining,
+    remaining: remainingCount,
     timedOut,
     internalMovementsDetected,
+    indexError,
   };
 }
 
-/**
- * Run queue processing for a specific job, updating progress in Firestore
- * @param jobId - The job ID to track progress
- * @param limit - Maximum number of emails to process
- */
 async function runJobProcessor(jobId: string, limit: number): Promise<void> {
   const jobRef = admin
     .firestore()
@@ -424,34 +338,43 @@ async function runJobProcessor(jobId: string, limit: number): Promise<void> {
   const timeoutMs = MAX_TIMEOUT_SECONDS * 1000 - TIMEOUT_BUFFER_MS;
 
   try {
-    // Mark job as running
     await jobRef.update({
       status: "running",
       startedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
-    // Query for unprocessed emails
-    const snapshot = await admin
-      .firestore()
-      .collection(COLLECTIONS.EMAILS)
-      .where("processed", "==", false)
-      .limit(limit)
-      .get();
+    let snapshot;
+    try {
+      snapshot = await admin
+        .firestore()
+        .collection(COLLECTIONS.EMAILS)
+        .where("processed", "==", false)
+        .limit(limit)
+        .get();
+    } catch (error) {
+      if (isFirestoreIndexError(error)) {
+        await jobRef.update({
+          status: "failed",
+          error: getErrorMessage(error),
+          completedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+        return;
+      }
+      throw error;
+    }
 
     const total = snapshot.size;
-    console.log(`📋 Found ${total} unprocessed emails for job ${jobId}`);
 
-    // Update job with total count
     await jobRef.update({ total });
 
     if (snapshot.empty) {
-      // Still run internal movement detection even if no new emails
-      const internalMovementsDetected = await detectAndFlagInternalMovements();
+      const internalResult = await detectAndFlagInternalMovements();
       await jobRef.update({
         status: "completed",
         processed: 0,
         remaining: 0,
-        internalMovementsDetected,
+        internalMovementsDetected: internalResult.count,
+        error: internalResult.indexError,
         completedAt: admin.firestore.FieldValue.serverTimestamp(),
       });
       return;
@@ -461,10 +384,8 @@ async function runJobProcessor(jobId: string, limit: number): Promise<void> {
     let timedOut = false;
 
     for (const doc of snapshot.docs) {
-      // Check if we're approaching timeout
       const elapsed = Date.now() - startTime;
       if (elapsed >= timeoutMs) {
-        console.log(`⏱️ Job ${jobId} approaching timeout after ${elapsed}ms`);
         timedOut = true;
         break;
       }
@@ -475,7 +396,6 @@ async function runJobProcessor(jobId: string, limit: number): Promise<void> {
       }
 
       try {
-        // Update current email being processed
         await jobRef.update({
           currentEmail: doc.id,
         });
@@ -483,51 +403,45 @@ async function runJobProcessor(jobId: string, limit: number): Promise<void> {
         await processEmailDocument(doc.id, doc.data());
         processedCount++;
 
-        // Update progress
         await jobRef.update({
           processed: processedCount,
         });
-      } catch (error) {
-        console.error(`   ❌ Error processing email ${doc.id}:`, error);
+      } catch {
         await releaseEmailProcessing(doc.id);
-        // Continue with next email
       }
     }
 
-    // Get remaining count
-    const remainingSnapshot = await admin
-      .firestore()
-      .collection(COLLECTIONS.EMAILS)
-      .where("processed", "==", false)
-      .count()
-      .get();
-    const remaining = remainingSnapshot.data().count;
+    let remainingCount = 0;
+    try {
+      const remainingSnapshot = await admin
+        .firestore()
+        .collection(COLLECTIONS.EMAILS)
+        .where("processed", "==", false)
+        .count()
+        .get();
+      remainingCount = remainingSnapshot.data().count;
+    } catch {
+      // Ignore count errors
+    }
 
-    // Run internal movement detection after processing emails
     let internalMovementsDetected = 0;
+    let indexError: string | undefined;
     if (!timedOut) {
-      try {
-        internalMovementsDetected = await detectAndFlagInternalMovements();
-      } catch (error) {
-        console.error("❌ Error detecting internal movements:", error);
-      }
+      const internalResult = await detectAndFlagInternalMovements();
+      internalMovementsDetected = internalResult.count;
+      indexError = internalResult.indexError;
     }
 
-    // Mark job as completed
     await jobRef.update({
-      status: timedOut ? "completed" : "completed",
+      status: "completed",
       processed: processedCount,
-      remaining,
+      remaining: remainingCount,
       internalMovementsDetected,
+      error: indexError,
       currentEmail: admin.firestore.FieldValue.delete(),
       completedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
-
-    console.log(
-      `✅ Job ${jobId} completed: ${processedCount}/${total} emails processed`
-    );
   } catch (error) {
-    console.error(`❌ Job ${jobId} failed:`, error);
     await jobRef.update({
       status: "failed",
       error: getErrorMessage(error),
@@ -536,10 +450,6 @@ async function runJobProcessor(jobId: string, limit: number): Promise<void> {
   }
 }
 
-/**
- * Scheduled function that runs twice a day (every 12 hours)
- * Automatically processes unprocessed emails with timeout handling
- */
 export const scheduledProcessQueue = onSchedule(
   {
     schedule: "every 12 hours",
@@ -549,38 +459,18 @@ export const scheduledProcessQueue = onSchedule(
   },
   async (): Promise<void> => {
     const startTime = Date.now();
-    console.log("⏰ Scheduled queue processing started");
 
     try {
-      // Process up to 100 emails per scheduled run
-      const result = await runQueueProcessor(100, startTime);
-
-      if (result.timedOut) {
-        console.log(
-          `⏱️ Scheduled processing timed out. Processed: ${result.processed}, Remaining: ${result.remaining}`
-        );
-        // Don't throw - let the next cron job continue
-      } else {
-        console.log(
-          `✅ Scheduled processing complete: ${result.processed} emails, ${result.remaining} remaining`
-        );
-      }
-    } catch (error) {
-      console.error("❌ Scheduled processing error:", error);
+      await runQueueProcessor(100, startTime);
+    } catch {
       // Don't throw to allow graceful handling
     }
   }
 );
 
-/**
- * HTTP endpoint to manually trigger queue processing (async)
- * Returns immediately with a job ID that can be used to track progress
- * Accepts ?limit=N query param to control batch size (default: 10)
- */
 export const processEmailQueue = onRequest(
   httpOptions,
   async (req, res): Promise<void> => {
-    // Set CORS headers
     res.set("Access-Control-Allow-Origin", "*");
     res.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
     res.set("Access-Control-Allow-Headers", "Authorization, Content-Type");
@@ -593,7 +483,6 @@ export const processEmailQueue = onRequest(
     if (!(await validateAuth(req, res))) return;
 
     try {
-      // Parse limit from query param
       const limitParam = req.query.limit;
       const limit =
         typeof limitParam === "string"
@@ -602,7 +491,6 @@ export const processEmailQueue = onRequest(
       const validLimit =
         isNaN(limit) || limit < 1 ? DEFAULT_BATCH_SIZE : Math.min(limit, 100);
 
-      // Create a new job document
       const jobId = uuidv4();
       const jobData: ProcessJob = {
         status: "pending",
@@ -620,37 +508,29 @@ export const processEmailQueue = onRequest(
         .doc(jobId)
         .set(jobData);
 
-      console.log(`📬 Created job ${jobId} (limit: ${validLimit})`);
-
-      // Start processing in the background (don't await)
-      runJobProcessor(jobId, validLimit).catch((error) => {
-        console.error(`❌ Background job ${jobId} failed:`, error);
+      runJobProcessor(jobId, validLimit).catch(() => {
+        // Background job errors are stored in the job document
       });
 
       const response: StartProcessResponse = {
         success: true,
         jobId,
-        message: `Processing started. Use /getProcessStatus?jobId=${jobId} to track progress.`,
+        message: `Email queue processing started with limit of ${validLimit}. Track progress using the job ID.`,
       };
       res.json(response);
     } catch (error) {
-      console.error("❌ Error starting queue processing:", error);
       res.status(500).json({
         success: false,
         error: getErrorMessage(error),
+        message: "Failed to start email queue processing",
       });
     }
   }
 );
 
-/**
- * HTTP endpoint to get the status of a processing job
- * Requires ?jobId=... query param
- */
 export const getProcessStatus = onRequest(
   { timeoutSeconds: 30, memory: "256MiB" },
   async (req, res): Promise<void> => {
-    // Set CORS headers
     res.set("Access-Control-Allow-Origin", "*");
     res.set("Access-Control-Allow-Methods", "GET, OPTIONS");
     res.set("Access-Control-Allow-Headers", "Authorization, Content-Type");
@@ -667,7 +547,8 @@ export const getProcessStatus = onRequest(
       if (!jobId || typeof jobId !== "string") {
         res.status(400).json({
           success: false,
-          error: "Missing required query parameter: jobId",
+          error: "Invalid request",
+          message: "Missing required query parameter: jobId",
         });
         return;
       }
@@ -681,15 +562,24 @@ export const getProcessStatus = onRequest(
       if (!jobDoc.exists) {
         res.status(404).json({
           success: false,
-          error: `Job ${jobId} not found`,
+          error: "Job not found",
+          message: `No processing job found with ID: ${jobId}`,
         });
         return;
       }
 
       const data = jobDoc.data() as ProcessJob;
 
+      const statusMessages: Record<ProcessJobStatus, string> = {
+        pending: "Job is queued and waiting to start",
+        running: `Processing in progress. ${data.processed} emails completed so far.`,
+        completed: `Processing finished. ${data.processed} emails processed, ${data.remaining} remaining.`,
+        failed: `Processing failed: ${data.error || "Unknown error"}`,
+      };
+
       const response: ProcessStatusResponse = {
         success: true,
+        message: statusMessages[data.status],
         jobId,
         status: data.status,
         processed: data.processed,
@@ -714,23 +604,18 @@ export const getProcessStatus = onRequest(
 
       res.json(response);
     } catch (error) {
-      console.error("❌ Error getting process status:", error);
       res.status(500).json({
         success: false,
         error: getErrorMessage(error),
+        message: "Failed to retrieve job status",
       });
     }
   }
 );
 
-/**
- * Test endpoint to mark all emails as unprocessed
- * Useful for testing the queue processor
- */
 export const unprocessAllEmails = onRequest(
   httpOptions,
   async (req, res): Promise<void> => {
-    // Set CORS headers
     res.set("Access-Control-Allow-Origin", "*");
     res.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
     res.set("Access-Control-Allow-Headers", "Authorization, Content-Type");
@@ -742,27 +627,37 @@ export const unprocessAllEmails = onRequest(
 
     if (!(await validateAuth(req, res))) return;
 
-    console.log("🔄 Marking all emails as unprocessed...");
-
     try {
-      const snapshot = await admin
-        .firestore()
-        .collection(COLLECTIONS.EMAILS)
-        .where("processed", "==", true)
-        .get();
-
-      console.log(`📋 Found ${snapshot.size} processed emails to reset`);
+      let snapshot;
+      try {
+        snapshot = await admin
+          .firestore()
+          .collection(COLLECTIONS.EMAILS)
+          .where("processed", "==", true)
+          .get();
+      } catch (error) {
+        if (isFirestoreIndexError(error)) {
+          res.status(500).json({
+            success: false,
+            error: getErrorMessage(error),
+            message:
+              "Firestore index required. Click the link in the error to create it.",
+          });
+          return;
+        }
+        throw error;
+      }
 
       if (snapshot.empty) {
         const response: UnprocessResponse = {
           success: true,
+          message: "No processed emails found to reset",
           updated: 0,
         };
         res.json(response);
         return;
       }
 
-      // Use batched writes for efficiency
       let batch = admin.firestore().batch();
       let batchCount = 0;
 
@@ -785,17 +680,18 @@ export const unprocessAllEmails = onRequest(
         await batch.commit();
       }
 
-      console.log(`✅ Reset ${snapshot.size} emails to unprocessed`);
-
       const response: UnprocessResponse = {
         success: true,
+        message: `Successfully reset ${snapshot.size} emails to unprocessed state`,
         updated: snapshot.size,
       };
       res.json(response);
     } catch (error) {
-      console.error("❌ Error resetting emails:", error);
-      const errorResponse: ErrorResponse = { error: getErrorMessage(error) };
-      res.status(500).json(errorResponse);
+      res.status(500).json({
+        success: false,
+        error: getErrorMessage(error),
+        message: "Failed to reset emails to unprocessed state",
+      });
     }
   }
 );

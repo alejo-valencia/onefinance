@@ -1,13 +1,6 @@
-/**
- * Email service - handles email storage operations
- */
-
 import * as admin from "firebase-admin";
 import { EmailDocument, EmailHeaders, COLLECTIONS } from "../types";
 
-/**
- * Save an email document to Firestore
- */
 export async function saveEmail(
   emailData: EmailHeaders,
   bodyText: string
@@ -38,9 +31,6 @@ export async function saveEmail(
   });
 }
 
-/**
- * Get the Gmail config document reference
- */
 export function getGmailConfigRef(): FirebaseFirestore.DocumentReference {
   return admin.firestore().collection(COLLECTIONS.CONFIG).doc("gmail");
 }

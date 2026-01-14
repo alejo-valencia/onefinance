@@ -1,7 +1,3 @@
-/**
- * Admin handlers - utility endpoints for managing Gmail integration
- */
-
 import { onRequest } from "firebase-functions/v2/https";
 import { TARGET_LABEL, PUBSUB_TOPIC } from "../config/constants";
 import { getGmailClient } from "../services/gmail";
@@ -14,11 +10,7 @@ import {
 } from "../types";
 import { getErrorMessage, validateAuth, requireEnvVars } from "../utils";
 
-/**
- * Renews the Gmail watch subscription
- */
 export const renewWatch = onRequest(async (req, res): Promise<void> => {
-  // Set CORS headers
   res.set("Access-Control-Allow-Origin", "*");
   res.set("Access-Control-Allow-Methods", "GET, OPTIONS");
   res.set("Access-Control-Allow-Headers", "Authorization, Content-Type");
@@ -31,12 +23,9 @@ export const renewWatch = onRequest(async (req, res): Promise<void> => {
   if (!(await validateAuth(req, res))) return;
   requireEnvVars(["PUBSUB_TOPIC", "TARGET_LABEL"]);
 
-  console.log("🔄 Renewing Gmail watch subscription...");
-
   try {
     const { gmail } = await getGmailClient();
 
-    console.log("📡 Calling Gmail watch API...");
     const result = await gmail.users.watch({
       userId: "me",
       requestBody: {
@@ -45,33 +34,31 @@ export const renewWatch = onRequest(async (req, res): Promise<void> => {
       },
     });
 
-    const expiration = new Date(
-      parseInt(result.data.expiration ?? "0", 10)
-    ).toISOString();
-    console.log(`✅ Watch renewed successfully!`);
-    console.log(`   ⏰ Expires: ${expiration}`);
+    const expirationMs = parseInt(result.data.expiration ?? "0", 10);
+    const expirationDate = new Date(expirationMs).toISOString();
+    const expiresIn = Math.round(
+      (expirationMs - Date.now()) / (1000 * 60 * 60 * 24)
+    );
 
     const response: WatchResponse = {
       success: true,
+      message: `Gmail watch subscription renewed successfully. Expires in ${expiresIn} days.`,
       expiration: result.data.expiration ?? undefined,
-      expirationDate: expiration,
+      expirationDate,
     };
     res.json(response);
   } catch (err) {
-    console.error("❌ Renew watch error:", err);
     const response: WatchResponse = {
       success: false,
       error: getErrorMessage(err),
+      message:
+        "Failed to renew Gmail watch subscription. Check Gmail API credentials and Pub/Sub topic configuration.",
     };
     res.status(500).json(response);
   }
 });
 
-/**
- * Lists all Gmail labels for the authenticated user
- */
 export const getLabels = onRequest(async (req, res): Promise<void> => {
-  // Set CORS headers
   res.set("Access-Control-Allow-Origin", "*");
   res.set("Access-Control-Allow-Methods", "GET, OPTIONS");
   res.set("Access-Control-Allow-Headers", "Authorization, Content-Type");
@@ -83,12 +70,9 @@ export const getLabels = onRequest(async (req, res): Promise<void> => {
 
   if (!(await validateAuth(req, res))) return;
 
-  console.log("🏷️ Fetching Gmail labels...");
-
   try {
     const { gmail } = await getGmailClient();
 
-    console.log("📋 Calling Gmail labels API...");
     const response = await gmail.users.labels.list({
       userId: "me",
     });
@@ -98,26 +82,25 @@ export const getLabels = onRequest(async (req, res): Promise<void> => {
       name: label.name ?? "",
     }));
 
-    console.log(`✅ Found ${labels.length} labels`);
-    labels.forEach((label) => {
-      console.log(`   🏷️ ${label.name} (${label.id})`);
-    });
-
-    const result: LabelsResponse = { labels };
+    const result: LabelsResponse = {
+      success: true,
+      message: `Found ${labels.length} Gmail labels`,
+      count: labels.length,
+      labels,
+    };
     res.json(result);
   } catch (error) {
-    console.error("❌ Error fetching labels:", error);
-    const errorResponse: ErrorResponse = { error: getErrorMessage(error) };
+    const errorResponse: ErrorResponse = {
+      success: false,
+      error: getErrorMessage(error),
+      message:
+        "Failed to fetch Gmail labels. Ensure Gmail API access is authorized.",
+    };
     res.status(500).json(errorResponse);
   }
 });
 
-/**
- * Test function - processes recent emails from the target label
- * Use this to test email processing without waiting for new emails
- */
 export const testProcessEmails = onRequest(async (req, res): Promise<void> => {
-  // Set CORS headers
   res.set("Access-Control-Allow-Origin", "*");
   res.set("Access-Control-Allow-Methods", "GET, OPTIONS");
   res.set("Access-Control-Allow-Headers", "Authorization, Content-Type");
@@ -130,18 +113,14 @@ export const testProcessEmails = onRequest(async (req, res): Promise<void> => {
   if (!(await validateAuth(req, res))) return;
   requireEnvVars(["TARGET_LABEL"]);
 
-  console.log("🧪 Test: Processing recent emails from target label...");
-
   try {
     const countParam = req.query.count;
     const parsed =
       typeof countParam === "string" ? parseInt(countParam, 10) : 3;
     const maxResults = isNaN(parsed) || parsed < 1 ? 3 : Math.min(parsed, 20);
-    console.log(`📧 Fetching last ${maxResults} emails...`);
 
     const { gmail } = await getGmailClient();
 
-    // Fetch recent messages from the target label
     const listResponse = await gmail.users.messages.list({
       userId: "me",
       maxResults,
@@ -149,32 +128,33 @@ export const testProcessEmails = onRequest(async (req, res): Promise<void> => {
     });
 
     const messages = listResponse.data.messages ?? [];
-    console.log(`📨 Found ${messages.length} emails`);
 
     if (messages.length === 0) {
       const response: TestProcessEmailsResponse = {
         success: true,
-        message: "No emails found in the target label",
+        message: `No emails found in the target label (${TARGET_LABEL})`,
         processed: 0,
       };
       res.json(response);
       return;
     }
 
-    // Process emails using shared utility
     const result = await processEmailMessages(gmail, messages);
-
-    console.log(`✅ Test completed! Processed ${result.processed} emails`);
 
     const response: TestProcessEmailsResponse = {
       success: true,
+      message: `Successfully processed ${result.processed} emails from target label`,
       processed: result.processed,
       emails: result.emails,
     };
     res.json(response);
   } catch (error) {
-    console.error("❌ Test error:", error);
-    const errorResponse: ErrorResponse = { error: getErrorMessage(error) };
+    const errorResponse: ErrorResponse = {
+      success: false,
+      error: getErrorMessage(error),
+      message:
+        "Failed to process test emails. Check Gmail API access and target label configuration.",
+    };
     res.status(500).json(errorResponse);
   }
 });

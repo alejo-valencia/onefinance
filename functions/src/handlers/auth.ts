@@ -1,7 +1,3 @@
-/**
- * Auth handlers - OAuth flow endpoints
- */
-
 import { onRequest } from "firebase-functions/v2/https";
 import { google } from "googleapis";
 import { TARGET_LABEL, PUBSUB_TOPIC } from "../config/constants";
@@ -14,12 +10,7 @@ import { getGmailConfigRef } from "../services/email";
 import { GmailConfig } from "../types";
 import { getErrorMessage, validateAuth, requireEnvVars } from "../utils";
 
-/**
- * Initiates Gmail OAuth flow
- * Returns the auth URL as JSON for the frontend to open
- */
 export const authGmail = onRequest(async (req, res): Promise<void> => {
-  // Set CORS headers for the frontend
   res.set("Access-Control-Allow-Origin", "*");
   res.set("Access-Control-Allow-Methods", "GET, OPTIONS");
   res.set("Access-Control-Allow-Headers", "Authorization, Content-Type");
@@ -36,18 +27,15 @@ export const authGmail = onRequest(async (req, res): Promise<void> => {
     "GMAIL_REDIRECT_URI",
   ]);
 
-  console.log("🚀 Starting Gmail authorization flow...");
   const authUrl = generateAuthUrl();
-  console.log("➡️ Returning auth URL to client...");
-  res.json({ authUrl });
+  res.json({
+    success: true,
+    message: "Gmail authorization URL generated. Open this URL to authorize.",
+    authUrl,
+  });
 });
 
-/**
- * OAuth callback - handles the authorization code and sets up watch
- */
 export const oauthCallback = onRequest(async (req, res): Promise<void> => {
-  console.log("📥 OAuth callback received");
-
   try {
     requireEnvVars([
       "GMAIL_CLIENT_ID",
@@ -58,20 +46,19 @@ export const oauthCallback = onRequest(async (req, res): Promise<void> => {
     ]);
     const code = req.query.code;
     if (typeof code !== "string") {
-      console.error("❌ No authorization code received");
-      res.status(400).send("No authorization code");
+      res.status(400).json({
+        success: false,
+        error: "Missing authorization code",
+        message: "No authorization code was received from Google OAuth",
+      });
       return;
     }
 
-    console.log("🔄 Processing authorization code...");
     const tokens = await getTokensFromCode(code);
 
-    console.log("💾 Saving tokens to Firestore...");
     const gmailConfig: GmailConfig = { tokens };
     await getGmailConfigRef().set(gmailConfig);
-    console.log("✅ Tokens saved");
 
-    console.log("📡 Setting up Gmail watch...");
     const gmail = google.gmail({ version: "v1", auth: oauth2Client });
     const watchResult = await gmail.users.watch({
       userId: "me",
@@ -80,14 +67,33 @@ export const oauthCallback = onRequest(async (req, res): Promise<void> => {
         labelIds: [TARGET_LABEL],
       },
     });
-    console.log(
-      "✅ Watch set up successfully, expires:",
-      watchResult.data.expiration
+
+    const expirationMs = parseInt(watchResult.data.expiration ?? "0", 10);
+    const expiresIn = Math.round(
+      (expirationMs - Date.now()) / (1000 * 60 * 60 * 24)
     );
 
-    res.send("✅ Authorized successfully!");
+    res.send(`
+      <html>
+        <head><title>Authorization Successful</title></head>
+        <body style="font-family: system-ui; padding: 40px; text-align: center;">
+          <h1 style="color: #4CAF50;">✅ Authorized Successfully!</h1>
+          <p>Gmail integration is now active.</p>
+          <p>Watch subscription expires in ${expiresIn} days.</p>
+          <p>You can close this window.</p>
+        </body>
+      </html>
+    `);
   } catch (error) {
-    console.error("❌ OAuth callback error:", error);
-    res.status(500).send("Authorization failed: " + getErrorMessage(error));
+    res.status(500).send(`
+      <html>
+        <head><title>Authorization Failed</title></head>
+        <body style="font-family: system-ui; padding: 40px; text-align: center;">
+          <h1 style="color: #f44336;">❌ Authorization Failed</h1>
+          <p>${getErrorMessage(error)}</p>
+          <p>Please try again or check the server logs.</p>
+        </body>
+      </html>
+    `);
   }
 });

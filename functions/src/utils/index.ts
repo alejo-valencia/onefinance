@@ -1,36 +1,29 @@
-/**
- * Shared utility functions
- */
-
 import { https } from "firebase-functions";
 import * as admin from "firebase-admin";
 
-/**
- * Helper to extract error message from unknown error
- */
 export function getErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : "Unknown error";
+  if (error instanceof Error) {
+    if (error.message.includes("requires an index")) {
+      return `Firestore index required: ${error.message}`;
+    }
+    return error.message;
+  }
+  return "Unknown error";
 }
 
-/**
- * Ensures required environment variables are set
- */
+export function isFirestoreIndexError(error: unknown): boolean {
+  return error instanceof Error && error.message.includes("requires an index");
+}
+
 export function requireEnvVars(vars: string[]): void {
   const missing = vars.filter((key) => !process.env[key]);
   if (missing.length > 0) {
-    const errorMsg = `❌ Missing required environment variables: ${missing.join(
-      ", "
-    )}`;
-    console.error(errorMsg);
-    throw new Error(errorMsg);
+    throw new Error(
+      `Missing required environment variables: ${missing.join(", ")}`
+    );
   }
 }
 
-/**
- * Validates Firebase ID token from Authorization header
- * Also checks if the user's email matches the authorized email
- * Returns true if valid, sends error response and returns false if invalid
- */
 export async function validateAuth(
   req: https.Request,
   res: { status: (code: number) => { json: (body: unknown) => void } }
@@ -39,61 +32,58 @@ export async function validateAuth(
   const authorizedEmail = process.env.AUTHORIZED_EMAIL;
 
   if (!authorizedEmail) {
-    console.error("❌ AUTHORIZED_EMAIL environment variable not configured");
-    res.status(500).json({ error: "Server misconfiguration" });
+    res.status(500).json({
+      success: false,
+      error: "Server configuration error",
+      message: "AUTHORIZED_EMAIL environment variable is not configured",
+    });
     return false;
   }
 
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
-    console.error(
-      "❌ Unauthorized request - missing or invalid Authorization header"
-    );
-    res
-      .status(401)
-      .json({ error: "Unauthorized - Missing authorization token" });
+    res.status(401).json({
+      success: false,
+      error: "Authentication required",
+      message:
+        "Missing or invalid Authorization header. Expected format: Bearer <token>",
+    });
     return false;
   }
 
   const idToken = authHeader.split("Bearer ")[1];
 
   try {
-    // Verify the Firebase ID token
     const decodedToken = await admin.auth().verifyIdToken(idToken);
     const userEmail = decodedToken.email;
 
     if (!userEmail) {
-      console.error("❌ No email in token");
-      res.status(401).json({ error: "Unauthorized - No email in token" });
+      res.status(401).json({
+        success: false,
+        error: "Invalid token",
+        message: "The provided token does not contain an email address",
+      });
       return false;
     }
 
-    // Check if email matches authorized email
     if (userEmail !== authorizedEmail) {
-      console.error(`❌ Unauthorized email: ${userEmail}`);
-      res.status(403).json({ error: "Forbidden - Email not authorized" });
+      res.status(403).json({
+        success: false,
+        error: "Access denied",
+        message: `The email ${userEmail} is not authorized to access this resource`,
+      });
       return false;
     }
 
-    console.log(`✅ Authenticated user: ${userEmail}`);
     return true;
   } catch (error) {
-    console.error("❌ Token verification failed:", error);
-    res.status(401).json({ error: "Unauthorized - Invalid token" });
+    res.status(401).json({
+      success: false,
+      error: "Token verification failed",
+      message:
+        error instanceof Error
+          ? error.message
+          : "Unable to verify the provided token",
+    });
     return false;
   }
-}
-
-/**
- * Sync version of validateAuth for backward compatibility
- * Note: This is deprecated, use the async version
- * @deprecated Use async validateAuth instead
- */
-export function validateAuthSync(
-  req: https.Request,
-  res: { status: (code: number) => { json: (body: unknown) => void } }
-): boolean {
-  console.warn("⚠️ validateAuthSync is deprecated, use async validateAuth");
-  // Return false to force migration to async version
-  res.status(500).json({ error: "Server requires update to async auth" });
-  return false;
 }

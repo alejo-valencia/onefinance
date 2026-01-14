@@ -1,8 +1,3 @@
-/**
- * Application constants
- * Loaded from environment variables - see .env.example
- */
-
 import * as dotenv from "dotenv";
 import { OAuthConfig } from "../types";
 
@@ -16,6 +11,3 @@ export const OAUTH_CONFIG: OAuthConfig = {
   clientSecret: process.env.GMAIL_CLIENT_SECRET || "",
   redirectUri: process.env.GMAIL_REDIRECT_URI || "",
 };
-
-// NOTE: Do not throw on missing env vars at module load time.
-// Each handler/service validates only the variables it needs at runtime.

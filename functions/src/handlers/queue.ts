@@ -294,7 +294,8 @@ async function runQueueProcessor(
     try {
       await processEmailDocument(doc.id, doc.data());
       processedCount++;
-    } catch {
+    } catch (error) {
+      console.error(`Error processing email ${doc.id}:`, getErrorMessage(error));
       await releaseEmailProcessing(doc.id);
     }
   }
@@ -406,7 +407,8 @@ async function runJobProcessor(jobId: string, limit: number): Promise<void> {
         await jobRef.update({
           processed: processedCount,
         });
-      } catch {
+      } catch (error) {
+        console.error(`Error processing email ${doc.id}:`, getErrorMessage(error));
         await releaseEmailProcessing(doc.id);
       }
     }

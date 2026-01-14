@@ -101,6 +101,17 @@
               data-endpoint="/testProcessEmails"
               data-method="GET"
             >
+              <div class="form-group">
+                <label for="count">Email Count (optional, default: 3, max: 20)</label>
+                <input
+                  type="number"
+                  name="count"
+                  id="count"
+                  placeholder="3"
+                  min="1"
+                  max="20"
+                />
+              </div>
               <button type="submit" class="btn btn-warning">
                 Run Test Processing
               </button>

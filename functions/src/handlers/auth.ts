@@ -16,9 +16,20 @@ import { getErrorMessage, validateAuth, requireEnvVars } from "../utils";
 
 /**
  * Initiates Gmail OAuth flow
+ * Returns the auth URL as JSON for the frontend to open
  */
-export const authGmail = onRequest((req, res): void => {
-  if (!validateAuth(req, res)) return;
+export const authGmail = onRequest(async (req, res): Promise<void> => {
+  // Set CORS headers for the frontend
+  res.set("Access-Control-Allow-Origin", "*");
+  res.set("Access-Control-Allow-Methods", "GET, OPTIONS");
+  res.set("Access-Control-Allow-Headers", "Authorization, Content-Type");
+
+  if (req.method === "OPTIONS") {
+    res.status(204).send("");
+    return;
+  }
+
+  if (!(await validateAuth(req, res))) return;
   requireEnvVars([
     "GMAIL_CLIENT_ID",
     "GMAIL_CLIENT_SECRET",
@@ -27,8 +38,8 @@ export const authGmail = onRequest((req, res): void => {
 
   console.log("🚀 Starting Gmail authorization flow...");
   const authUrl = generateAuthUrl();
-  console.log("➡️ Redirecting to Google OAuth...");
-  res.redirect(authUrl);
+  console.log("➡️ Returning auth URL to client...");
+  res.json({ authUrl });
 });
 
 /**

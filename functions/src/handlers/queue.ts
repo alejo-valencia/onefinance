@@ -580,7 +580,17 @@ export const scheduledProcessQueue = onSchedule(
 export const processEmailQueue = onRequest(
   httpOptions,
   async (req, res): Promise<void> => {
-    if (!validateAuth(req, res)) return;
+    // Set CORS headers
+    res.set("Access-Control-Allow-Origin", "*");
+    res.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    res.set("Access-Control-Allow-Headers", "Authorization, Content-Type");
+
+    if (req.method === "OPTIONS") {
+      res.status(204).send("");
+      return;
+    }
+
+    if (!(await validateAuth(req, res))) return;
 
     try {
       // Parse limit from query param
@@ -640,7 +650,17 @@ export const processEmailQueue = onRequest(
 export const getProcessStatus = onRequest(
   { timeoutSeconds: 30, memory: "256MiB" },
   async (req, res): Promise<void> => {
-    if (!validateAuth(req, res)) return;
+    // Set CORS headers
+    res.set("Access-Control-Allow-Origin", "*");
+    res.set("Access-Control-Allow-Methods", "GET, OPTIONS");
+    res.set("Access-Control-Allow-Headers", "Authorization, Content-Type");
+
+    if (req.method === "OPTIONS") {
+      res.status(204).send("");
+      return;
+    }
+
+    if (!(await validateAuth(req, res))) return;
 
     try {
       const jobId = req.query.jobId;
@@ -710,7 +730,17 @@ export const getProcessStatus = onRequest(
 export const unprocessAllEmails = onRequest(
   httpOptions,
   async (req, res): Promise<void> => {
-    if (!validateAuth(req, res)) return;
+    // Set CORS headers
+    res.set("Access-Control-Allow-Origin", "*");
+    res.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    res.set("Access-Control-Allow-Headers", "Authorization, Content-Type");
+
+    if (req.method === "OPTIONS") {
+      res.status(204).send("");
+      return;
+    }
+
+    if (!(await validateAuth(req, res))) return;
 
     console.log("🔄 Marking all emails as unprocessed...");
 

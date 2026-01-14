@@ -18,7 +18,17 @@ import { getErrorMessage, validateAuth, requireEnvVars } from "../utils";
  * Renews the Gmail watch subscription
  */
 export const renewWatch = onRequest(async (req, res): Promise<void> => {
-  if (!validateAuth(req, res)) return;
+  // Set CORS headers
+  res.set("Access-Control-Allow-Origin", "*");
+  res.set("Access-Control-Allow-Methods", "GET, OPTIONS");
+  res.set("Access-Control-Allow-Headers", "Authorization, Content-Type");
+
+  if (req.method === "OPTIONS") {
+    res.status(204).send("");
+    return;
+  }
+
+  if (!(await validateAuth(req, res))) return;
   requireEnvVars(["PUBSUB_TOPIC", "TARGET_LABEL"]);
 
   console.log("🔄 Renewing Gmail watch subscription...");
@@ -61,7 +71,17 @@ export const renewWatch = onRequest(async (req, res): Promise<void> => {
  * Lists all Gmail labels for the authenticated user
  */
 export const getLabels = onRequest(async (req, res): Promise<void> => {
-  if (!validateAuth(req, res)) return;
+  // Set CORS headers
+  res.set("Access-Control-Allow-Origin", "*");
+  res.set("Access-Control-Allow-Methods", "GET, OPTIONS");
+  res.set("Access-Control-Allow-Headers", "Authorization, Content-Type");
+
+  if (req.method === "OPTIONS") {
+    res.status(204).send("");
+    return;
+  }
+
+  if (!(await validateAuth(req, res))) return;
 
   console.log("🏷️ Fetching Gmail labels...");
 
@@ -97,7 +117,17 @@ export const getLabels = onRequest(async (req, res): Promise<void> => {
  * Use this to test email processing without waiting for new emails
  */
 export const testProcessEmails = onRequest(async (req, res): Promise<void> => {
-  if (!validateAuth(req, res)) return;
+  // Set CORS headers
+  res.set("Access-Control-Allow-Origin", "*");
+  res.set("Access-Control-Allow-Methods", "GET, OPTIONS");
+  res.set("Access-Control-Allow-Headers", "Authorization, Content-Type");
+
+  if (req.method === "OPTIONS") {
+    res.status(204).send("");
+    return;
+  }
+
+  if (!(await validateAuth(req, res))) return;
   requireEnvVars(["TARGET_LABEL"]);
 
   console.log("🧪 Test: Processing recent emails from target label...");

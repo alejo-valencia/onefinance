@@ -14,7 +14,7 @@ export async function saveEmail(
     const existing = await tx.get(docRef);
     const existingData = existing.data() as EmailDocument | undefined;
 
-    const emailDoc: EmailDocument = {
+    const emailDoc: Partial<EmailDocument> = {
       subject: emailData.subject,
       from: emailData.from,
       date: emailData.date,
@@ -24,8 +24,12 @@ export async function saveEmail(
         admin.firestore.FieldValue.serverTimestamp(),
       processed: existingData?.processed ?? false,
       processing: existingData?.processing ?? false,
-      processingStartedAt: existingData?.processingStartedAt,
     };
+
+    // Only include processingStartedAt if it exists in the existing document
+    if (existingData?.processingStartedAt !== undefined) {
+      emailDoc.processingStartedAt = existingData.processingStartedAt;
+    }
 
     tx.set(docRef, emailDoc, { merge: true });
   });

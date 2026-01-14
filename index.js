@@ -50,14 +50,15 @@ app.use(express.static(path.join(__dirname, "public")));
 /**
  * API endpoint to provide client configuration
  * This allows the frontend to get the Firebase config without embedding it in HTML
+ * Note: We trim values to remove any trailing newlines from secrets
  */
 app.get("/api/config", (req, res) => {
   res.json({
-    firebaseApiKey: FIREBASE_API_KEY,
-    firebaseAuthDomain: FIREBASE_AUTH_DOMAIN,
-    firebaseProjectId: FIREBASE_PROJECT_ID,
-    authorizedEmail: AUTHORIZED_EMAIL,
-    functionsBaseUrl: FUNCTIONS_BASE_URL,
+    firebaseApiKey: FIREBASE_API_KEY.trim(),
+    firebaseAuthDomain: FIREBASE_AUTH_DOMAIN.trim(),
+    firebaseProjectId: FIREBASE_PROJECT_ID.trim(),
+    authorizedEmail: AUTHORIZED_EMAIL.trim(),
+    functionsBaseUrl: FUNCTIONS_BASE_URL.trim(),
   });
 });
 

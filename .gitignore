@@ -13,6 +13,9 @@ firebase-debug.*.log*
 .env.*.local
 functions/.env
 
+# App Hosting config (contains secrets)
+apphosting.yaml
+
 # Firebase cache
 .firebase/
 

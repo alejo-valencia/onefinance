@@ -5,6 +5,7 @@ admin.initializeApp();
 import { authGmail, oauthCallback } from "./handlers/auth";
 import { gmailWebhook } from "./handlers/webhook";
 import { renewWatch, getLabels, fetchEmails } from "./handlers/admin";
+import { getTransactions } from "./handlers/transactions";
 import {
   processEmailQueue,
   getProcessStatus,
@@ -19,6 +20,7 @@ export {
   renewWatch,
   getLabels,
   fetchEmails,
+  getTransactions,
   processEmailQueue,
   getProcessStatus,
   scheduledProcessQueue,

@@ -1,129 +1,18 @@
 import OpenAI from "openai";
+import { ASSISTANT_IDS } from "../config/constants";
+import { TransactionClassificationResponse } from "./agents/classification";
+import { TransactionCategorizationResponse } from "./agents/categorization";
+import { TransactionTimeExtractionResponse } from "./agents/timeExtraction";
+import {
+  InternalMovementDetectionResponse,
+  TransactionSummary,
+} from "./agents/internalMovement";
 
-export type TransactionType =
-  | "purchase"
-  | "incoming"
-  | "outgoing"
-  | "transfer"
-  | "payment";
-
-export type PaymentMethod = "llave" | "PSE" | "card" | "ACH" | "other";
-
-export interface ClassifiedTransaction {
-  type: TransactionType;
-  amount: number;
-  description: string;
-  date: string;
-  method: PaymentMethod;
-}
-
-export interface TransactionClassificationResponse {
-  should_track: boolean;
-  transaction: ClassifiedTransaction | null;
-  exclusion_reason: string | null;
-}
-
-export type TransactionCategory =
-  | "food_dining"
-  | "transportation"
-  | "housing"
-  | "shopping"
-  | "entertainment"
-  | "health"
-  | "financial"
-  | "education"
-  | "travel"
-  | "income"
-  | "other";
-
-export type TransactionSubcategory =
-  | "groceries"
-  | "restaurants"
-  | "delivery"
-  | "coffee_bakery"
-  | "bars_alcohol"
-  | "fuel"
-  | "public_transit"
-  | "rideshare"
-  | "parking_tolls"
-  | "vehicle_maintenance"
-  | "rent_mortgage"
-  | "utilities_electric"
-  | "utilities_water"
-  | "utilities_gas"
-  | "internet_tv"
-  | "phone_plan"
-  | "home_maintenance"
-  | "clothing_accessories"
-  | "electronics"
-  | "home_furniture"
-  | "personal_care"
-  | "pets"
-  | "gifts"
-  | "streaming"
-  | "gaming"
-  | "movies_events"
-  | "books_magazines"
-  | "hobbies"
-  | "medical_appointments"
-  | "pharmacy_medications"
-  | "gym_fitness"
-  | "insurance_health"
-  | "bank_fees"
-  | "loan_payment"
-  | "credit_card_payment"
-  | "insurance_other"
-  | "investments"
-  | "taxes"
-  | "tuition_courses"
-  | "books_supplies"
-  | "subscriptions_learning"
-  | "flights"
-  | "hotels_lodging"
-  | "travel_activities"
-  | "salary"
-  | "freelance"
-  | "reimbursement"
-  | "gift_received"
-  | "investment_return"
-  | "uncategorized";
-
-export type ConfidenceLevel = "high" | "medium" | "low";
-
-export interface TransactionCategorizationResponse {
-  category: TransactionCategory;
-  subcategory: TransactionSubcategory;
-  confidence: ConfidenceLevel;
-  notes: string | null;
-}
-
-export interface TransactionTimeExtractionResponse {
-  transaction_datetime: string | null;
-  transaction_date: string | null;
-  transaction_time: string | null;
-  extraction_successful: boolean;
-  notes: string | null;
-}
-
-export interface TransactionSummary {
-  id: string;
-  amount: number;
-  type: string;
-  transaction_datetime: string | null;
-  emailBody: string;
-}
-
-export interface InternalMovementDetectionResponse {
-  internal_movement_ids: string[];
-  pairs: Array<{
-    outgoing_id: string;
-    incoming_id: string;
-    amount: number;
-    datetime: string;
-    reason: string;
-  }>;
-  notes: string | null;
-}
+// Re-export types for consumers
+export * from "./agents/classification";
+export * from "./agents/categorization";
+export * from "./agents/timeExtraction";
+export * from "./agents/internalMovement";
 
 export interface TransactionProcessingResult {
   classification: TransactionClassificationResponse;
@@ -131,310 +20,12 @@ export interface TransactionProcessingResult {
   timeExtraction: TransactionTimeExtractionResponse;
 }
 
-const CLASSIFICATION_SYSTEM_PROMPT = `Transaction Classification Agent
-You are a transaction classifier for a Colombian bank (Davivienda). Your task is to analyze transaction notifications and determine if they should be tracked.
-
-TERMINOLOGY:
-- "Abono" = money entered/credited to the account
-- "Descuento" = money exited/debited from the account
-
-INCLUDE these transaction types:
-- Purchases at merchants (successful only)
-- Incoming money via "llave"
-- Outgoing money via "llave"
-- Incoming money via other banks
-- Transfers to other banks (PSE, ACH, etc.)
-- Bill payments
-
-EXCLUDE these transaction types:
-- Failed or declined transactions
-- Internal account movements containing "Bolsillo" ("Descuento Transferencia Bolsillo a Cuenta")
-
-Input: Raw transaction notification text`;
-
-const CLASSIFICATION_SCHEMA = {
-  name: "transaction_classification",
-  strict: true,
-  schema: {
-    type: "object",
-    additionalProperties: false,
-    required: ["should_track", "transaction", "exclusion_reason"],
-    properties: {
-      should_track: {
-        type: "boolean",
-      },
-      transaction: {
-        anyOf: [
-          {
-            type: "object",
-            additionalProperties: false,
-            required: ["type", "amount", "description", "date", "method"],
-            properties: {
-              type: {
-                type: "string",
-                enum: [
-                  "purchase",
-                  "incoming",
-                  "outgoing",
-                  "transfer",
-                  "payment",
-                ],
-              },
-              amount: {
-                type: "number",
-              },
-              description: {
-                type: "string",
-              },
-              date: {
-                type: "string",
-              },
-              method: {
-                type: "string",
-                enum: ["llave", "PSE", "card", "ACH", "other"],
-              },
-            },
-          },
-          {
-            type: "null",
-          },
-        ],
-      },
-      exclusion_reason: {
-        anyOf: [{ type: "string" }, { type: "null" }],
-      },
-    },
-  },
-};
-
-const CATEGORIZATION_SYSTEM_PROMPT = `You are a transaction categorizer. Given a transaction description, classify it into the appropriate category and subcategory.
-
-**Categories and Subcategories:**
-
-- **food_dining**
-  - groceries (supermarkets, markets)
-  - restaurants (dine-in, fast food)
-  - delivery (Rappi, iFood, UberEats)
-  - coffee_bakery (cafes, bakeries)
-  - bars_alcohol
-
-- **transportation**
-  - fuel (gas stations)
-  - public_transit (metro, bus)
-  - rideshare (Uber, Didi, taxi)
-  - parking_tolls
-  - vehicle_maintenance (repairs, car wash)
-
-- **housing**
-  - rent_mortgage
-  - utilities_electric
-  - utilities_water
-  - utilities_gas
-  - internet_tv
-  - phone_plan
-  - home_maintenance
-
-- **shopping**
-  - clothing_accessories
-  - electronics
-  - home_furniture
-  - personal_care (pharmacy, cosmetics)
-  - pets
-  - gifts
-
-- **entertainment**
-  - streaming (Netflix, Spotify, YouTube)
-  - gaming
-  - movies_events
-  - books_magazines
-  - hobbies
-
-- **health**
-  - medical_appointments
-  - pharmacy_medications
-  - gym_fitness
-  - insurance_health
-
-- **financial**
-  - bank_fees
-  - loan_payment
-  - credit_card_payment
-  - insurance_other
-  - investments
-  - taxes
-
-- **education**
-  - tuition_courses
-  - books_supplies
-  - subscriptions_learning (Coursera, Udemy)
-
-- **travel**
-  - flights
-  - hotels_lodging
-  - travel_activities
-
-- **income**
-  - salary
-  - freelance
-  - reimbursement
-  - gift_received
-  - investment_return
-
-- **other**
-  - uncategorized
-
-Analyze the transaction and assign the most appropriate category and subcategory.`;
-
-const CATEGORIZATION_SCHEMA = {
-  name: "transaction_categorization",
-  strict: true,
-  schema: {
-    type: "object",
-    additionalProperties: false,
-    required: ["category", "subcategory", "confidence", "notes"],
-    properties: {
-      category: {
-        type: "string",
-        enum: [
-          "food_dining",
-          "transportation",
-          "housing",
-          "shopping",
-          "entertainment",
-          "health",
-          "financial",
-          "education",
-          "travel",
-          "income",
-          "other",
-        ],
-      },
-      subcategory: {
-        type: "string",
-        enum: [
-          "groceries",
-          "restaurants",
-          "delivery",
-          "coffee_bakery",
-          "bars_alcohol",
-          "fuel",
-          "public_transit",
-          "rideshare",
-          "parking_tolls",
-          "vehicle_maintenance",
-          "rent_mortgage",
-          "utilities_electric",
-          "utilities_water",
-          "utilities_gas",
-          "internet_tv",
-          "phone_plan",
-          "home_maintenance",
-          "clothing_accessories",
-          "electronics",
-          "home_furniture",
-          "personal_care",
-          "pets",
-          "gifts",
-          "streaming",
-          "gaming",
-          "movies_events",
-          "books_magazines",
-          "hobbies",
-          "medical_appointments",
-          "pharmacy_medications",
-          "gym_fitness",
-          "insurance_health",
-          "bank_fees",
-          "loan_payment",
-          "credit_card_payment",
-          "insurance_other",
-          "investments",
-          "taxes",
-          "tuition_courses",
-          "books_supplies",
-          "subscriptions_learning",
-          "flights",
-          "hotels_lodging",
-          "travel_activities",
-          "salary",
-          "freelance",
-          "reimbursement",
-          "gift_received",
-          "investment_return",
-          "uncategorized",
-        ],
-      },
-      confidence: {
-        type: "string",
-        enum: ["high", "medium", "low"],
-      },
-      notes: {
-        type: ["string", "null"],
-      },
-    },
-  },
-};
-
-const TIME_EXTRACTION_SYSTEM_PROMPT = `Transaction Time Extraction Agent
-You are a time extraction agent for Colombian bank transaction notifications. Your task is to extract the exact date and time when the transaction occurred according to the bank notification.
-
-IMPORTANT: Extract the transaction time from the EMAIL BODY, NOT the email arrival time.
-All times in these notifications are in Colombia timezone (UTC-5).
-
-Common patterns in Davivienda notifications:
-- "Fecha: 2026/01/03 Hora: 18:26:40" -> date: 2026-01-03, time: 18:26:40
-- "Fecha: 03/01/2026 Hora: 6:30:00 PM" -> date: 2026-01-03, time: 18:30:00
-
-OUTPUT FORMAT:
-- transaction_datetime: Combined ISO 8601 format WITH Colombia timezone offset (e.g., "2026-01-03T18:26:40-05:00")
-- transaction_date: Date in YYYY-MM-DD format (e.g., "2026-01-03")
-- transaction_time: Time in HH:MM:SS 24-hour format (e.g., "18:26:40")
-- extraction_successful: true if you found a valid date/time, false otherwise
-- notes: Any relevant notes about the extraction (e.g., "Time was in 12-hour format, converted to 24-hour")
-
-IMPORTANT: Always include the Colombia timezone offset (-05:00) in transaction_datetime.
-
-If no transaction time is found, set all date/time fields to null and extraction_successful to false.
-
-Input: Raw transaction notification text`;
-
-const TIME_EXTRACTION_SCHEMA = {
-  name: "transaction_time_extraction",
-  strict: true,
-  schema: {
-    type: "object",
-    additionalProperties: false,
-    required: [
-      "transaction_datetime",
-      "transaction_date",
-      "transaction_time",
-      "extraction_successful",
-      "notes",
-    ],
-    properties: {
-      transaction_datetime: {
-        anyOf: [{ type: "string" }, { type: "null" }],
-      },
-      transaction_date: {
-        anyOf: [{ type: "string" }, { type: "null" }],
-      },
-      transaction_time: {
-        anyOf: [{ type: "string" }, { type: "null" }],
-      },
-      extraction_successful: {
-        type: "boolean",
-      },
-      notes: {
-        anyOf: [{ type: "string" }, { type: "null" }],
-      },
-    },
-  },
-};
+// Retry configuration
+const MAX_RETRIES = 3;
+const INITIAL_RETRY_DELAY_MS = 1000;
+const POLLING_INTERVAL_MS = 500; // Reduced from 1000ms for faster response
 
 let openaiClient: OpenAI | null = null;
-const OPENAI_REQUEST_TIMEOUT_MS = 15000;
-const MAX_RETRIES = 3;
-const RETRY_DELAY_MS = 2000;
 
 function getOpenAIClient(): OpenAI {
   const apiKey = process.env.OPENAI_API_KEY;
@@ -442,50 +33,282 @@ function getOpenAIClient(): OpenAI {
     throw new Error("OPENAI_API_KEY environment variable is not set");
   }
   if (!openaiClient) {
-    openaiClient = new OpenAI({ apiKey });
+    openaiClient = new OpenAI({
+      apiKey,
+      timeout: 30000, // 30 second timeout for individual API calls
+      maxRetries: 2, // Built-in retries for connection issues
+    });
   }
   return openaiClient;
 }
 
-async function createChatCompletionWithTimeout(
-  client: OpenAI,
-  params: OpenAI.ChatCompletionCreateParamsNonStreaming,
-  retryCount = 0
-): Promise<OpenAI.ChatCompletion> {
-  const controller = new AbortController();
-  const timeout = setTimeout(
-    () => controller.abort(),
-    OPENAI_REQUEST_TIMEOUT_MS
-  );
+function isRetryableError(error: unknown): boolean {
+  if (error instanceof Error) {
+    const message = error.message.toLowerCase();
+    return (
+      message.includes("connection") ||
+      message.includes("timeout") ||
+      message.includes("econnreset") ||
+      message.includes("enotfound") ||
+      message.includes("socket") ||
+      message.includes("network") ||
+      message.includes("rate limit") ||
+      message.includes("429") ||
+      message.includes("500") ||
+      message.includes("502") ||
+      message.includes("503") ||
+      message.includes("504")
+    );
+  }
+  return false;
+}
 
-  try {
-    return await client.chat.completions.create(params, {
-      signal: controller.signal,
+async function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function withRetry<T>(
+  operation: () => Promise<T>,
+  operationName: string
+): Promise<T> {
+  let lastError: Error | null = null;
+
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      if (attempt > 1) {
+        console.log(
+          `[OpenAI] ${operationName} - Retry attempt ${attempt}/${MAX_RETRIES}`
+        );
+      }
+      return await operation();
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      const isRetryable = isRetryableError(error);
+
+      console.error(
+        `[OpenAI] ${operationName} - Error on attempt ${attempt}/${MAX_RETRIES}:`,
+        {
+          message: lastError.message,
+          isRetryable,
+          willRetry: isRetryable && attempt < MAX_RETRIES,
+        }
+      );
+
+      if (!isRetryable || attempt === MAX_RETRIES) {
+        console.error(
+          `[OpenAI] ${operationName} - Giving up after ${attempt} attempts`
+        );
+        throw lastError;
+      }
+
+      const delayMs = INITIAL_RETRY_DELAY_MS * Math.pow(2, attempt - 1);
+      console.warn(`[OpenAI] ${operationName} - Retrying in ${delayMs}ms...`);
+      await delay(delayMs);
+    }
+  }
+
+  throw lastError;
+}
+
+async function runAssistant(
+  assistantId: string,
+  userMessage: string
+): Promise<string> {
+  const assistantShortId = assistantId.slice(-6);
+  const msgPreview =
+    userMessage.length > 100 ? userMessage.slice(0, 100) + "..." : userMessage;
+
+  console.log(`[OpenAI] Starting assistant ${assistantShortId}`, {
+    messageLength: userMessage.length,
+    preview: msgPreview,
+  });
+
+  const overallStartTime = Date.now();
+
+  return withRetry(async () => {
+    const client = getOpenAIClient();
+
+    // Create thread and run without polling initially
+    console.log(`[OpenAI] ${assistantShortId} - Creating thread and run...`);
+    const createStartTime = Date.now();
+
+    const run = await client.beta.threads.createAndRun({
+      assistant_id: assistantId,
+      thread: {
+        messages: [{ role: "user", content: userMessage }],
+      },
     });
-  } catch (error: any) {
-    if (retryCount < MAX_RETRIES) {
-      // Retry on timeout or 5xx errors
+
+    console.log(
+      `[OpenAI] ${assistantShortId} - Thread created in ${
+        Date.now() - createStartTime
+      }ms`,
+      {
+        runId: run.id,
+        threadId: run.thread_id,
+        initialStatus: run.status,
+      }
+    );
+
+    // Manual polling with timeout safety
+    const startTime = Date.now();
+    const TIMEOUT_MS = 45000; // Reduced to 45 seconds for faster failure detection
+    let pollCount = 0;
+
+    let runStatus = await client.beta.threads.runs.retrieve(run.id, {
+      thread_id: run.thread_id,
+    });
+
+    while (runStatus.status !== "completed") {
+      pollCount++;
+      const elapsedMs = Date.now() - startTime;
+
+      if (elapsedMs > TIMEOUT_MS) {
+        console.error(
+          `[OpenAI] ${assistantShortId} - TIMEOUT after ${elapsedMs}ms (${pollCount} polls)`,
+          {
+            lastStatus: runStatus.status,
+            runId: run.id,
+          }
+        );
+        // Try to cancel the run if possible so it doesn't continue consuming resources
+        try {
+          await client.beta.threads.runs.cancel(run.id, {
+            thread_id: run.thread_id,
+          });
+        } catch {
+          // Ignore cancel errors
+        }
+        throw new Error(`Assistant run timed out after ${TIMEOUT_MS}ms`);
+      }
+
+      if (runStatus.status === "failed") {
+        console.error(`[OpenAI] ${assistantShortId} - Run FAILED`, {
+          error: runStatus.last_error,
+          elapsedMs,
+          pollCount,
+        });
+        throw new Error(
+          `Assistant run failed: ${
+            runStatus.last_error?.message || "Unknown error"
+          }`
+        );
+      }
       if (
-        error.name === "AbortError" ||
-        error.status === 429 ||
-        (error.status >= 500 && error.status < 600)
+        runStatus.status === "cancelled" ||
+        runStatus.status === "expired" ||
+        runStatus.status === "incomplete"
       ) {
+        console.error(`[OpenAI] ${assistantShortId} - Run ended unexpectedly`, {
+          status: runStatus.status,
+          elapsedMs,
+          pollCount,
+        });
+        throw new Error(`Assistant run ended with status: ${runStatus.status}`);
+      }
+      if (runStatus.status === "requires_action") {
+        console.error(
+          `[OpenAI] ${assistantShortId} - Unexpected requires_action state`
+        );
+        // In case the assistant is trying to call a tool, we fail fast
+        try {
+          await client.beta.threads.runs.cancel(run.id, {
+            thread_id: run.thread_id,
+          });
+        } catch {
+          // Ignore cancel errors
+        }
+        throw new Error(
+          "Assistant entered 'requires_action' state (tool calls not supported in this implementation)"
+        );
+      }
+
+      // Log status every 5 polls (2.5 seconds) to avoid log spam
+      if (pollCount % 5 === 0) {
+        console.log(
+          `[OpenAI] ${assistantShortId} - Polling... status=${runStatus.status}, elapsed=${elapsedMs}ms, polls=${pollCount}`
+        );
+      }
+
+      // Wait before polling again (reduced interval for faster response)
+      await delay(POLLING_INTERVAL_MS);
+
+      try {
+        runStatus = await client.beta.threads.runs.retrieve(run.id, {
+          thread_id: run.thread_id,
+        });
+      } catch (pollError) {
+        // Log polling errors but continue - transient network issues shouldn't fail the whole run
         console.warn(
-          `OpenAI request failed (attempt ${
-            retryCount + 1
-          }/${MAX_RETRIES}). Retrying...`,
-          error.message
+          `[OpenAI] ${assistantShortId} - Polling error (will retry):`,
+          pollError instanceof Error ? pollError.message : "Unknown"
         );
-        clearTimeout(timeout);
-        await new Promise((resolve) =>
-          setTimeout(resolve, RETRY_DELAY_MS * (retryCount + 1))
-        );
-        return createChatCompletionWithTimeout(client, params, retryCount + 1);
+        await delay(POLLING_INTERVAL_MS * 2);
+        runStatus = await client.beta.threads.runs.retrieve(run.id, {
+          thread_id: run.thread_id,
+        });
       }
     }
-    throw error;
-  } finally {
-    clearTimeout(timeout);
+
+    const pollingDuration = Date.now() - startTime;
+    console.log(
+      `[OpenAI] ${assistantShortId} - Run completed in ${pollingDuration}ms (${pollCount} polls)`
+    );
+
+    // Retrieve messages
+    const messages = await client.beta.threads.messages.list(run.thread_id);
+
+    // Get the last message from the assistant
+    const lastMessage = messages.data
+      .filter((message) => message.role === "assistant")
+      .shift();
+
+    if (
+      !lastMessage ||
+      !lastMessage.content ||
+      lastMessage.content.length === 0
+    ) {
+      console.error(
+        `[OpenAI] ${assistantShortId} - No response content from assistant`
+      );
+      throw new Error("No response from assistant");
+    }
+
+    const textContent = lastMessage.content[0];
+    if (textContent.type !== "text") {
+      console.error(
+        `[OpenAI] ${assistantShortId} - Response is not text, type: ${textContent.type}`
+      );
+      throw new Error("Assistant response is not text");
+    }
+
+    const totalDuration = Date.now() - overallStartTime;
+    const responsePreview =
+      textContent.text.value.length > 200
+        ? textContent.text.value.slice(0, 200) + "..."
+        : textContent.text.value;
+
+    console.log(
+      `[OpenAI] ${assistantShortId} - SUCCESS in ${totalDuration}ms`,
+      {
+        responseLength: textContent.text.value.length,
+        preview: responsePreview,
+      }
+    );
+
+    return textContent.text.value;
+  }, `runAssistant(${assistantShortId})`);
+}
+
+function parseJSONResponse<T>(responseText: string): T {
+  // Remove markdown code blocks if present
+  const cleanText = responseText.replace(/```json\n?|\n?```/g, "").trim();
+  try {
+    return JSON.parse(cleanText) as T;
+  } catch (e: any) {
+    throw new Error(
+      `Failed to parse JSON response from assistant: ${e.message}. Response: ${responseText}`
+    );
   }
 }
 
@@ -493,148 +316,37 @@ export async function classifyTransaction(
   subject: string,
   body: string
 ): Promise<TransactionClassificationResponse> {
-  const client = getOpenAIClient();
   const userMessage = JSON.stringify({ subject, body });
-
-  const response = await createChatCompletionWithTimeout(client, {
-    model: "gpt-5-mini",
-    messages: [
-      { role: "system", content: CLASSIFICATION_SYSTEM_PROMPT },
-      { role: "user", content: userMessage },
-    ],
-    response_format: {
-      type: "json_schema",
-      json_schema: CLASSIFICATION_SCHEMA,
-    },
-  });
-
-  const content = response.choices[0]?.message?.content;
-  if (!content) {
-    throw new Error("No response content from OpenAI (classification)");
-  }
-
-  return JSON.parse(content) as TransactionClassificationResponse;
+  const responseText = await runAssistant(
+    ASSISTANT_IDS.classification,
+    userMessage
+  );
+  return parseJSONResponse<TransactionClassificationResponse>(responseText);
 }
 
 export async function categorizeTransaction(
   subject: string,
   body: string
 ): Promise<TransactionCategorizationResponse> {
-  const client = getOpenAIClient();
   const userMessage = JSON.stringify({ subject, body });
-
-  const response = await createChatCompletionWithTimeout(client, {
-    model: "gpt-5-mini",
-    messages: [
-      { role: "system", content: CATEGORIZATION_SYSTEM_PROMPT },
-      { role: "user", content: userMessage },
-    ],
-    response_format: {
-      type: "json_schema",
-      json_schema: CATEGORIZATION_SCHEMA,
-    },
-  });
-
-  const content = response.choices[0]?.message?.content;
-  if (!content) {
-    throw new Error("No response content from OpenAI (categorization)");
-  }
-
-  return JSON.parse(content) as TransactionCategorizationResponse;
+  const responseText = await runAssistant(
+    ASSISTANT_IDS.categorization,
+    userMessage
+  );
+  return parseJSONResponse<TransactionCategorizationResponse>(responseText);
 }
 
 export async function extractTransactionTime(
   subject: string,
   body: string
 ): Promise<TransactionTimeExtractionResponse> {
-  const client = getOpenAIClient();
   const userMessage = JSON.stringify({ subject, body });
-
-  const response = await createChatCompletionWithTimeout(client, {
-    model: "gpt-5-mini",
-    messages: [
-      { role: "system", content: TIME_EXTRACTION_SYSTEM_PROMPT },
-      { role: "user", content: userMessage },
-    ],
-    response_format: {
-      type: "json_schema",
-      json_schema: TIME_EXTRACTION_SCHEMA,
-    },
-  });
-
-  const content = response.choices[0]?.message?.content;
-  if (!content) {
-    throw new Error("No response content from OpenAI (time extraction)");
-  }
-
-  return JSON.parse(content) as TransactionTimeExtractionResponse;
+  const responseText = await runAssistant(
+    ASSISTANT_IDS.timeExtraction,
+    userMessage
+  );
+  return parseJSONResponse<TransactionTimeExtractionResponse>(responseText);
 }
-
-const INTERNAL_MOVEMENT_SYSTEM_PROMPT = `Internal Movement Detection Agent
-You are an agent that detects internal transfers between a user's own bank accounts.
-
-You will receive an array of transactions, each with:
-- id: unique transaction identifier
-- amount: transaction amount
-- type: "incoming" or "outgoing"
-- transaction_datetime: when the transaction occurred
-- emailBody: the original bank notification content
-
-Your task is to identify pairs of transactions that represent money moving between the user's OWN accounts (internal movements).
-
-CRITERIA FOR INTERNAL MOVEMENTS:
-1. Same amount (exactly)
-2. Same date and time (or within a few seconds/minutes)
-3. One must be "outgoing" (Descuento) and one must be "incoming" (Abono)
-4. Both should be transfers (look for "Transferencia" in the email body)
-5. Both should be from the same bank's app (e.g., "App Davivienda")
-
-IMPORTANT:
-- Only flag transactions that are clearly internal movements between the user's own accounts
-- If in doubt, DO NOT flag the transaction
-- Return the IDs of ALL transactions that are part of internal movements (both the outgoing and incoming)
-
-Output the IDs of transactions that are internal movements, along with the pairs you identified.`;
-
-const INTERNAL_MOVEMENT_SCHEMA = {
-  name: "internal_movement_detection",
-  strict: true,
-  schema: {
-    type: "object",
-    additionalProperties: false,
-    required: ["internal_movement_ids", "pairs", "notes"],
-    properties: {
-      internal_movement_ids: {
-        type: "array",
-        items: { type: "string" },
-      },
-      pairs: {
-        type: "array",
-        items: {
-          type: "object",
-          additionalProperties: false,
-          required: [
-            "outgoing_id",
-            "incoming_id",
-            "amount",
-            "datetime",
-            "reason",
-          ],
-          properties: {
-            outgoing_id: { type: "string" },
-            incoming_id: { type: "string" },
-            amount: { type: "number" },
-            datetime: { type: "string" },
-            reason: { type: "string" },
-          },
-        },
-      },
-      notes: {
-        anyOf: [{ type: "string" }, { type: "null" }],
-      },
-    },
-  },
-};
 
 export async function detectInternalMovements(
   transactions: TransactionSummary[]
@@ -647,44 +359,61 @@ export async function detectInternalMovements(
     };
   }
 
-  const client = getOpenAIClient();
   const userMessage = JSON.stringify(transactions);
-
-  const response = await createChatCompletionWithTimeout(client, {
-    model: "gpt-5-mini",
-    messages: [
-      { role: "system", content: INTERNAL_MOVEMENT_SYSTEM_PROMPT },
-      { role: "user", content: userMessage },
-    ],
-    response_format: {
-      type: "json_schema",
-      json_schema: INTERNAL_MOVEMENT_SCHEMA,
-    },
-  });
-
-  const content = response.choices[0]?.message?.content;
-  if (!content) {
-    throw new Error(
-      "No response content from OpenAI (internal movement detection)"
-    );
-  }
-
-  return JSON.parse(content) as InternalMovementDetectionResponse;
+  const responseText = await runAssistant(
+    ASSISTANT_IDS.internalMovement,
+    userMessage
+  );
+  return parseJSONResponse<InternalMovementDetectionResponse>(responseText);
 }
 
 export async function processTransactionWithAgents(
   subject: string,
   body: string
 ): Promise<TransactionProcessingResult> {
-  const [classification, categorization, timeExtraction] = await Promise.all([
-    classifyTransaction(subject, body),
-    categorizeTransaction(subject, body),
-    extractTransactionTime(subject, body),
-  ]);
+  const startTime = Date.now();
+  const subjectPreview =
+    subject.length > 50 ? subject.slice(0, 50) + "..." : subject;
 
-  return {
-    classification,
-    categorization,
-    timeExtraction,
-  };
+  console.log(
+    `[OpenAI] processTransactionWithAgents - Starting parallel agent calls`,
+    {
+      subject: subjectPreview,
+      bodyLength: body.length,
+    }
+  );
+
+  try {
+    const [classification, categorization, timeExtraction] = await Promise.all([
+      classifyTransaction(subject, body),
+      categorizeTransaction(subject, body),
+      extractTransactionTime(subject, body),
+    ]);
+
+    const duration = Date.now() - startTime;
+    console.log(
+      `[OpenAI] processTransactionWithAgents - All agents completed in ${duration}ms`,
+      {
+        shouldTrack: classification.should_track,
+        category: categorization.category,
+        transactionDatetime: timeExtraction.transaction_datetime,
+      }
+    );
+
+    return {
+      classification,
+      categorization,
+      timeExtraction,
+    };
+  } catch (error) {
+    const duration = Date.now() - startTime;
+    console.error(
+      `[OpenAI] processTransactionWithAgents - FAILED after ${duration}ms`,
+      {
+        error: error instanceof Error ? error.message : String(error),
+        subject: subjectPreview,
+      }
+    );
+    throw error;
+  }
 }

@@ -12,6 +12,10 @@ import {
   scheduledProcessQueue,
   unprocessAllEmails,
 } from "./handlers/queue";
+import {
+  detectDuplicateTransactions,
+  resetInternalMovements,
+} from "./handlers/duplicates";
 
 export {
   authGmail,
@@ -25,4 +29,6 @@ export {
   getProcessStatus,
   scheduledProcessQueue,
   unprocessAllEmails,
+  detectDuplicateTransactions,
+  resetInternalMovements,
 };

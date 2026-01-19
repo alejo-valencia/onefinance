@@ -17,6 +17,8 @@ This comprehensive guide covers all endpoints and features of the OneFinance Gma
   - [getProcessStatus](#8-getprocessstatus---check-job-progress)
   - [unprocessAllEmails](#9-unprocessallemails---reset-emails)
   - [scheduledProcessQueue](#10-scheduledprocessqueue---automatic-processing)
+  - [detectDuplicateTransactions](#11-detectduplicatetransactions---detect-internal-movements)
+  - [resetInternalMovements](#12-resetinternalmovements---reset-duplicate-flags)
 - [Data Flow](#-data-flow)
 - [Firestore Collections](#-firestore-collections)
 - [Troubleshooting](#-troubleshooting)
@@ -710,6 +712,128 @@ This function:
 ---
 
 <details>
+<summary><h3>11. <code>detectDuplicateTransactions</code> - Detect Internal Movements</h3></summary>
+
+**Description:** Analyzes transactions for a specific day to detect internal movements (transfers between your own accounts). Uses AI to identify matching outgoing/incoming transaction pairs.
+
+| Property          | Value           |
+| ----------------- | --------------- |
+| **Method**        | `GET` or `POST` |
+| **Auth Required** | ✅ Yes          |
+| **Trigger**       | HTTP            |
+| **Timeout**       | 5 minutes       |
+| **Memory**        | 512 MiB         |
+
+**URL:**
+
+```
+/detectDuplicateTransactions?token=YOUR_API_TOKEN&date=YYYY-MM-DD
+```
+
+**Parameters:**
+
+| Parameter | Type   | Required | Description                      |
+| --------- | ------ | -------- | -------------------------------- |
+| `date`    | string | ✅ Yes   | Target date in YYYY-MM-DD format |
+
+**Example Request:**
+
+```bash
+curl "https://us-central1-YOUR_PROJECT_ID.cloudfunctions.net/detectDuplicateTransactions?token=YOUR_API_TOKEN&date=2026-01-19"
+```
+
+**Success Response:**
+
+```json
+{
+  "success": true,
+  "message": "Analyzed 15 transactions for 2026-01-19. Found 2 internal movements.",
+  "date": "2026-01-19",
+  "transactionsAnalyzed": 15,
+  "internalMovementsDetected": 2,
+  "pairs": [
+    {
+      "outgoingId": "abc123",
+      "incomingId": "def456",
+      "amount": 500000,
+      "datetime": "2026-01-19T10:30:00",
+      "reason": "Matching transfer from Account A to Account B"
+    }
+  ]
+}
+```
+
+**Error Response (Missing Date):**
+
+```json
+{
+  "success": false,
+  "error": "MISSING_DATE",
+  "message": "Date parameter is required. Use ?date=YYYY-MM-DD or provide date in request body."
+}
+```
+
+> 📝 **Note:** This endpoint updates transactions in Firestore, setting `internal_movement: true` for detected pairs.
+
+</details>
+
+---
+
+<details>
+<summary><h3>12. <code>resetInternalMovements</code> - Reset Duplicate Flags</h3></summary>
+
+**Description:** Resets the internal movement flags on transactions, allowing them to be re-analyzed. Can target a specific day or all transactions.
+
+| Property          | Value           |
+| ----------------- | --------------- |
+| **Method**        | `GET` or `POST` |
+| **Auth Required** | ✅ Yes          |
+| **Trigger**       | HTTP            |
+| **Timeout**       | 5 minutes       |
+| **Memory**        | 512 MiB         |
+
+**URL:**
+
+```
+/resetInternalMovements?token=YOUR_API_TOKEN&date=YYYY-MM-DD
+```
+
+**Parameters:**
+
+| Parameter | Type   | Required | Description                                               |
+| --------- | ------ | -------- | --------------------------------------------------------- |
+| `date`    | string | ❌ No    | Target date in YYYY-MM-DD format. If omitted, resets all. |
+
+**Example Request (Specific Date):**
+
+```bash
+curl "https://us-central1-YOUR_PROJECT_ID.cloudfunctions.net/resetInternalMovements?token=YOUR_API_TOKEN&date=2026-01-19"
+```
+
+**Example Request (All Transactions):**
+
+```bash
+curl "https://us-central1-YOUR_PROJECT_ID.cloudfunctions.net/resetInternalMovements?token=YOUR_API_TOKEN"
+```
+
+**Success Response:**
+
+```json
+{
+  "success": true,
+  "message": "Reset 10 transactions to unchecked state",
+  "updated": 10,
+  "date": "2026-01-19"
+}
+```
+
+> 📝 **Note:** After resetting, you can run `detectDuplicateTransactions` again to re-analyze the transactions.
+
+</details>
+
+---
+
+<details>
 <summary><h2>🔄 Data Flow</h2></summary>
 
 ```
@@ -847,18 +971,20 @@ Stores processing job status and progress.
 <details>
 <summary><h2>🛠️ Endpoints Summary</h2></summary>
 
-| Endpoint                | Method    | Auth | Description                       |
-| ----------------------- | --------- | ---- | --------------------------------- |
-| `authGmail`             | GET       | ✅   | Start Gmail OAuth flow            |
-| `oauthCallback`         | GET       | ❌   | OAuth callback (Google redirects) |
-| `getLabels`             | GET       | ✅   | List all Gmail labels             |
-| `renewWatch`            | GET       | ✅   | Renew Gmail watch subscription    |
-| `fetchEmails`           | GET       | ✅   | Fetch & store recent emails       |
-| `gmailWebhook`          | POST      | ❌   | Pub/Sub webhook (Google calls)    |
-| `processEmailQueue`     | GET       | ✅   | Start async email processing      |
-| `getProcessStatus`      | GET       | ✅   | Check job progress                |
-| `unprocessAllEmails`    | GET       | ✅   | Reset all emails to unprocessed   |
-| `scheduledProcessQueue` | Scheduler | N/A  | Auto-runs every 12 hours          |
+| Endpoint                      | Method    | Auth | Description                         |
+| ----------------------------- | --------- | ---- | ----------------------------------- |
+| `authGmail`                   | GET       | ✅   | Start Gmail OAuth flow              |
+| `oauthCallback`               | GET       | ❌   | OAuth callback (Google redirects)   |
+| `getLabels`                   | GET       | ✅   | List all Gmail labels               |
+| `renewWatch`                  | GET       | ✅   | Renew Gmail watch subscription      |
+| `fetchEmails`                 | GET       | ✅   | Fetch & store recent emails         |
+| `gmailWebhook`                | POST      | ❌   | Pub/Sub webhook (Google calls)      |
+| `processEmailQueue`           | GET       | ✅   | Start async email processing        |
+| `getProcessStatus`            | GET       | ✅   | Check job progress                  |
+| `unprocessAllEmails`          | GET       | ✅   | Reset all emails to unprocessed     |
+| `scheduledProcessQueue`       | Scheduler | N/A  | Auto-runs every 12 hours            |
+| `detectDuplicateTransactions` | GET/POST  | ✅   | Detect internal movements for a day |
+| `resetInternalMovements`      | GET/POST  | ✅   | Reset duplicate detection flags     |
 
 </details>
 
@@ -914,11 +1040,9 @@ https://us-central1-YOUR_PROJECT_ID.cloudfunctions.net/authGmail?token=YOUR_API_
 **Possible causes and solutions:**
 
 1. **Watch subscription expired**
-
    - Call `renewWatch?token=...` to renew
 
 2. **Wrong label ID**
-
    - Use `getLabels?token=...` to verify the correct ID
    - Update `TARGET_LABEL` in `.env`
 
@@ -944,9 +1068,23 @@ https://us-central1-YOUR_PROJECT_ID.cloudfunctions.net/authGmail?token=YOUR_API_
 
 ### Duplicate transactions
 
-**Cause:** Emails were reprocessed after using `unprocessAllEmails`.
+**Cause:** Emails were reprocessed after using `unprocessAllEmails`, or internal movements (transfers between your own accounts) appear as separate transactions.
 
-**Solution:** Clear the `transactions` collection before reprocessing, or implement deduplication logic.
+**Solution:**
+
+1. Use `detectDuplicateTransactions` endpoint to identify and flag internal movements:
+
+   ```bash
+   curl "https://us-central1-YOUR_PROJECT_ID.cloudfunctions.net/detectDuplicateTransactions?token=YOUR_API_TOKEN&date=2026-01-19"
+   ```
+
+2. If you need to re-analyze, first reset the flags:
+
+   ```bash
+   curl "https://us-central1-YOUR_PROJECT_ID.cloudfunctions.net/resetInternalMovements?token=YOUR_API_TOKEN&date=2026-01-19"
+   ```
+
+3. To prevent duplicates when reprocessing emails, clear the `transactions` collection before using `unprocessAllEmails`.
 
 </details>
 

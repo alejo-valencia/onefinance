@@ -4,11 +4,7 @@ import * as admin from "firebase-admin";
 import { v4 as uuidv4 } from "uuid";
 import { COLLECTIONS, LogEntry } from "../types";
 import { getErrorMessage, validateAuth, isFirestoreIndexError } from "../utils";
-import {
-  processTransactionWithAgents,
-  detectInternalMovements,
-  TransactionSummary,
-} from "../services/openai";
+import { processTransactionWithAgents } from "../services/openai";
 
 const MAX_TIMEOUT_SECONDS = 540;
 const TIMEOUT_BUFFER_MS = 30 * 1000;
@@ -29,7 +25,6 @@ interface ProcessJob {
   total: number;
   remaining: number;
   currentEmail?: string;
-  internalMovementsDetected: number;
   error?: string;
   createdAt: FirebaseFirestore.FieldValue | FirebaseFirestore.Timestamp;
   startedAt?: FirebaseFirestore.FieldValue | FirebaseFirestore.Timestamp;
@@ -51,7 +46,6 @@ interface ProcessStatusResponse {
   processed: number;
   total: number;
   remaining: number;
-  internalMovementsDetected: number;
   currentEmail?: string;
   error?: string;
   createdAt?: string;
@@ -139,7 +133,7 @@ async function releaseEmailProcessing(emailId: string): Promise<void> {
 
 async function processEmailDocument(
   emailId: string,
-  emailData: FirebaseFirestore.DocumentData
+  emailData: FirebaseFirestore.DocumentData,
 ): Promise<void> {
   const subject = emailData.subject as string;
   const body = emailData.body as string;
@@ -206,117 +200,11 @@ interface QueueProcessResult {
   processed: number;
   remaining: number;
   timedOut: boolean;
-  internalMovementsDetected: number;
   indexError?: string;
-}
-
-async function detectAndFlagInternalMovements(): Promise<{
-  count: number;
-  indexError?: string;
-}> {
-  let snapshot;
-  try {
-    snapshot = await admin
-      .firestore()
-      .collection(COLLECTIONS.TRANSACTIONS)
-      .where("classification.should_track", "==", true)
-      .where("internal_movement_checked", "==", false)
-      .orderBy("createdAt", "desc")
-      .limit(50)
-      .get();
-  } catch (error) {
-    if (isFirestoreIndexError(error)) {
-      return {
-        count: 0,
-        indexError: getErrorMessage(error),
-      };
-    }
-    throw error;
-  }
-
-  if (snapshot.empty) {
-    return { count: 0 };
-  }
-
-  const transactions: TransactionSummary[] = [];
-  for (const doc of snapshot.docs) {
-    const data = doc.data();
-    const emailId = data.emailId as string;
-
-    const emailDoc = await admin
-      .firestore()
-      .collection(COLLECTIONS.EMAILS)
-      .doc(emailId)
-      .get();
-
-    if (!emailDoc.exists) {
-      continue;
-    }
-
-    const emailData = emailDoc.data();
-    const emailBody = (emailData?.body as string) || "";
-
-    transactions.push({
-      id: doc.id,
-      amount: data.classification?.transaction?.amount || 0,
-      type: data.classification?.transaction?.type || "unknown",
-      transaction_datetime: data.timeExtraction?.transaction_datetime || null,
-      emailBody,
-    });
-  }
-
-  if (transactions.length === 0) {
-    return { count: 0 };
-  }
-
-  const result = await detectInternalMovements(transactions);
-
-  const internalMovementIds = new Set(result.internal_movement_ids);
-  let batch = admin.firestore().batch();
-  let batchCount = 0;
-  const logTimestamp = admin.firestore.Timestamp.now();
-
-  for (const doc of snapshot.docs) {
-    const isInternal = internalMovementIds.has(doc.id);
-    const matchingPair = isInternal
-      ? result.pairs.find(
-          (p) => p.outgoing_id === doc.id || p.incoming_id === doc.id
-        )
-      : undefined;
-
-    const internalMovementLog: LogEntry = {
-      timestamp: logTimestamp,
-      event: "internal_movement_checked",
-      details: {
-        isInternalMovement: isInternal,
-        pairReason: matchingPair?.reason,
-        notes: result.notes,
-      },
-    };
-
-    batch.update(doc.ref, {
-      internal_movement: isInternal,
-      internal_movement_checked: true,
-      logs: admin.firestore.FieldValue.arrayUnion(internalMovementLog),
-    });
-    batchCount++;
-
-    if (batchCount >= 450) {
-      await batch.commit();
-      batch = admin.firestore().batch();
-      batchCount = 0;
-    }
-  }
-
-  if (batchCount > 0) {
-    await batch.commit();
-  }
-
-  return { count: internalMovementIds.size };
 }
 
 async function processEmailBatch(
-  docs: FirebaseFirestore.QueryDocumentSnapshot[]
+  docs: FirebaseFirestore.QueryDocumentSnapshot[],
 ): Promise<number> {
   const processingPromises = docs.map(async (doc) => {
     const claimed = await claimEmailForProcessing(doc.id);
@@ -330,7 +218,7 @@ async function processEmailBatch(
     } catch (error) {
       console.error(
         `Error processing email ${doc.id}:`,
-        getErrorMessage(error)
+        getErrorMessage(error),
       );
       await releaseEmailProcessing(doc.id);
       return false;
@@ -344,7 +232,7 @@ async function processEmailBatch(
 async function runQueueProcessor(
   limit: number = DEFAULT_BATCH_SIZE,
   startTime: number = Date.now(),
-  timeoutMs: number = MAX_TIMEOUT_SECONDS * 1000 - TIMEOUT_BUFFER_MS
+  timeoutMs: number = MAX_TIMEOUT_SECONDS * 1000 - TIMEOUT_BUFFER_MS,
 ): Promise<QueueProcessResult> {
   let snapshot;
   try {
@@ -360,7 +248,6 @@ async function runQueueProcessor(
         processed: 0,
         remaining: 0,
         timedOut: false,
-        internalMovementsDetected: 0,
         indexError: getErrorMessage(error),
       };
     }
@@ -368,13 +255,10 @@ async function runQueueProcessor(
   }
 
   if (snapshot.empty) {
-    const internalResult = await detectAndFlagInternalMovements();
     return {
       processed: 0,
       remaining: 0,
       timedOut: false,
-      internalMovementsDetected: internalResult.count,
-      indexError: internalResult.indexError,
     };
   }
 
@@ -408,20 +292,10 @@ async function runQueueProcessor(
     // Ignore count errors
   }
 
-  let internalMovementsDetected = 0;
-  let indexError: string | undefined;
-  if (!timedOut) {
-    const internalResult = await detectAndFlagInternalMovements();
-    internalMovementsDetected = internalResult.count;
-    indexError = internalResult.indexError;
-  }
-
   return {
     processed: processedCount,
     remaining: remainingCount,
     timedOut,
-    internalMovementsDetected,
-    indexError,
   };
 }
 
@@ -480,13 +354,11 @@ async function runJobProcessor(jobId: string): Promise<void> {
     await jobRef.update({ total });
 
     if (snapshot.empty) {
-      const internalResult = await detectAndFlagInternalMovements();
       const completedLog: LogEntry = {
         timestamp: admin.firestore.Timestamp.now(),
         event: "job_completed",
         details: {
           reason: "no_emails_to_process",
-          internalMovementsDetected: internalResult.count,
           durationMs: Date.now() - startTime,
         },
       };
@@ -495,8 +367,6 @@ async function runJobProcessor(jobId: string): Promise<void> {
         status: "completed",
         processed: 0,
         remaining: 0,
-        internalMovementsDetected: internalResult.count,
-        ...(internalResult.indexError && { error: internalResult.indexError }),
         completedAt: admin.firestore.FieldValue.serverTimestamp(),
         logs: admin.firestore.FieldValue.arrayUnion(completedLog),
       });
@@ -544,14 +414,6 @@ async function runJobProcessor(jobId: string): Promise<void> {
       // Ignore count errors
     }
 
-    let internalMovementsDetected = 0;
-    let indexError: string | undefined;
-    if (!timedOut) {
-      const internalResult = await detectAndFlagInternalMovements();
-      internalMovementsDetected = internalResult.count;
-      indexError = internalResult.indexError;
-    }
-
     const completedLog: LogEntry = {
       timestamp: admin.firestore.Timestamp.now(),
       event: "job_completed",
@@ -559,7 +421,6 @@ async function runJobProcessor(jobId: string): Promise<void> {
         processedCount,
         remainingCount,
         timedOut,
-        internalMovementsDetected,
         durationMs: Date.now() - startTime,
       },
     };
@@ -568,8 +429,6 @@ async function runJobProcessor(jobId: string): Promise<void> {
       status: "completed",
       processed: processedCount,
       remaining: remainingCount,
-      internalMovementsDetected,
-      ...(indexError && { error: indexError }),
       currentEmail: admin.firestore.FieldValue.delete(),
       completedAt: admin.firestore.FieldValue.serverTimestamp(),
       logs: admin.firestore.FieldValue.arrayUnion(completedLog),
@@ -608,7 +467,7 @@ export const scheduledProcessQueue = onSchedule(
     } catch {
       // Don't throw to allow graceful handling
     }
-  }
+  },
 );
 
 export const processEmailQueue = onRequest(
@@ -641,7 +500,6 @@ export const processEmailQueue = onRequest(
         processed: 0,
         total: 0,
         remaining: 0,
-        internalMovementsDetected: 0,
         createdAt: now,
         logs: [createdLog],
       };
@@ -669,7 +527,7 @@ export const processEmailQueue = onRequest(
         message: "Failed to start email queue processing",
       });
     }
-  }
+  },
 );
 
 export const getProcessStatus = onRequest(
@@ -758,7 +616,6 @@ export const getProcessStatus = onRequest(
         processed: data.processed,
         total: data.total,
         remaining: data.remaining,
-        internalMovementsDetected: data.internalMovementsDetected,
         currentEmail: data.currentEmail,
         error: data.error,
         createdAt:
@@ -783,7 +640,7 @@ export const getProcessStatus = onRequest(
         message: "Failed to retrieve job status",
       });
     }
-  }
+  },
 );
 
 export const unprocessAllEmails = onRequest(
@@ -866,5 +723,5 @@ export const unprocessAllEmails = onRequest(
         message: "Failed to reset emails to unprocessed state",
       });
     }
-  }
+  },
 );

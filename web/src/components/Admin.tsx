@@ -13,6 +13,7 @@ function Admin() {
   // Form state
   const [hours, setHours] = useState("");
   const [jobId, setJobId] = useState("");
+  const [duplicateDate, setDuplicateDate] = useState("");
 
   const handleGmailAuth = async () => {
     const token = await getIdToken();
@@ -136,6 +137,53 @@ function Admin() {
           buttonVariant="danger"
           onSubmit={() => callApi("/unprocessAllEmails", "POST")}
         />
+
+        <ApiCard
+          icon="🔍"
+          title="Detect Duplicates"
+          description="Analyze transactions for a specific day to find internal movements."
+          buttonText="Detect Internal Movements"
+          onSubmit={() =>
+            callApi(
+              "/detectDuplicateTransactions",
+              "POST",
+              duplicateDate ? { date: duplicateDate } : undefined,
+            )
+          }
+        >
+          <InputField
+            label="Date (YYYY-MM-DD)"
+            id="duplicateDate"
+            type="date"
+            placeholder="2026-01-19"
+            value={duplicateDate}
+            onChange={setDuplicateDate}
+          />
+        </ApiCard>
+
+        <ApiCard
+          icon="↩️"
+          title="Reset Internal Movements"
+          description="Reset duplicate detection flags to re-analyze transactions."
+          buttonText="Reset Flags"
+          buttonVariant="warning"
+          onSubmit={() =>
+            callApi(
+              "/resetInternalMovements",
+              "POST",
+              duplicateDate ? { date: duplicateDate } : undefined,
+            )
+          }
+        >
+          <InputField
+            label="Date (YYYY-MM-DD, optional for all)"
+            id="resetDate"
+            type="date"
+            placeholder="Leave empty for all"
+            value={duplicateDate}
+            onChange={setDuplicateDate}
+          />
+        </ApiCard>
       </div>
     </div>
   );

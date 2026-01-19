@@ -432,7 +432,7 @@ const TIME_EXTRACTION_SCHEMA = {
 };
 
 let openaiClient: OpenAI | null = null;
-const OPENAI_REQUEST_TIMEOUT_MS = 30000;
+const OPENAI_REQUEST_TIMEOUT_MS = 15000;
 
 function getOpenAIClient(): OpenAI {
   const apiKey = process.env.OPENAI_API_KEY;
@@ -498,7 +498,7 @@ export async function categorizeTransaction(
   const userMessage = JSON.stringify({ subject, body });
 
   const response = await createChatCompletionWithTimeout(client, {
-    model: "gpt-5.2",
+    model: "gpt-5-mini",
     messages: [
       { role: "system", content: CATEGORIZATION_SYSTEM_PROMPT },
       { role: "user", content: userMessage },
@@ -625,7 +625,7 @@ export async function detectInternalMovements(
   const userMessage = JSON.stringify(transactions);
 
   const response = await createChatCompletionWithTimeout(client, {
-    model: "gpt-5.2",
+    model: "gpt-5-mini",
     messages: [
       { role: "system", content: INTERNAL_MOVEMENT_SYSTEM_PROMPT },
       { role: "user", content: userMessage },

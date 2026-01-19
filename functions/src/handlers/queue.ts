@@ -12,12 +12,13 @@ import {
 
 const MAX_TIMEOUT_SECONDS = 540;
 const TIMEOUT_BUFFER_MS = 30 * 1000;
-const DEFAULT_BATCH_SIZE = 10;
+const DEFAULT_BATCH_SIZE = 50;
+const PARALLEL_PROCESSING_LIMIT = 10;
 const PROCESSING_LOCK_TIMEOUT_MS = 15 * 60 * 1000;
 
 const httpOptions: HttpsOptions = {
   timeoutSeconds: MAX_TIMEOUT_SECONDS,
-  memory: "512MiB",
+  memory: "1GiB",
 };
 
 type ProcessJobStatus = "pending" | "running" | "completed" | "failed";
@@ -312,6 +313,32 @@ async function detectAndFlagInternalMovements(): Promise<{
   return { count: internalMovementIds.size };
 }
 
+async function processEmailBatch(
+  docs: FirebaseFirestore.QueryDocumentSnapshot[]
+): Promise<number> {
+  const processingPromises = docs.map(async (doc) => {
+    const claimed = await claimEmailForProcessing(doc.id);
+    if (!claimed) {
+      return false;
+    }
+
+    try {
+      await processEmailDocument(doc.id, doc.data());
+      return true;
+    } catch (error) {
+      console.error(
+        `Error processing email ${doc.id}:`,
+        getErrorMessage(error)
+      );
+      await releaseEmailProcessing(doc.id);
+      return false;
+    }
+  });
+
+  const results = await Promise.all(processingPromises);
+  return results.filter(Boolean).length;
+}
+
 async function runQueueProcessor(
   limit: number = DEFAULT_BATCH_SIZE,
   startTime: number = Date.now(),
@@ -352,28 +379,18 @@ async function runQueueProcessor(
   let processedCount = 0;
   let timedOut = false;
 
-  for (const doc of snapshot.docs) {
+  // Process emails in parallel batches
+  const docs = snapshot.docs;
+  for (let i = 0; i < docs.length; i += PARALLEL_PROCESSING_LIMIT) {
     const elapsed = Date.now() - startTime;
     if (elapsed >= timeoutMs) {
       timedOut = true;
       break;
     }
 
-    const claimed = await claimEmailForProcessing(doc.id);
-    if (!claimed) {
-      continue;
-    }
-
-    try {
-      await processEmailDocument(doc.id, doc.data());
-      processedCount++;
-    } catch (error) {
-      console.error(
-        `Error processing email ${doc.id}:`,
-        getErrorMessage(error)
-      );
-      await releaseEmailProcessing(doc.id);
-    }
+    const batch = docs.slice(i, i + PARALLEL_PROCESSING_LIMIT);
+    const batchProcessed = await processEmailBatch(batch);
+    processedCount += batchProcessed;
   }
 
   let remainingCount = 0;
@@ -477,7 +494,7 @@ async function runJobProcessor(jobId: string): Promise<void> {
         processed: 0,
         remaining: 0,
         internalMovementsDetected: internalResult.count,
-        error: internalResult.indexError,
+        ...(internalResult.indexError && { error: internalResult.indexError }),
         completedAt: admin.firestore.FieldValue.serverTimestamp(),
         logs: admin.firestore.FieldValue.arrayUnion(completedLog),
       });
@@ -487,36 +504,29 @@ async function runJobProcessor(jobId: string): Promise<void> {
     let processedCount = 0;
     let timedOut = false;
 
-    for (const doc of snapshot.docs) {
+    // Process emails in parallel batches
+    const docs = snapshot.docs;
+    for (let i = 0; i < docs.length; i += PARALLEL_PROCESSING_LIMIT) {
       const elapsed = Date.now() - startTime;
       if (elapsed >= timeoutMs) {
         timedOut = true;
         break;
       }
 
-      const claimed = await claimEmailForProcessing(doc.id);
-      if (!claimed) {
-        continue;
-      }
+      const batchDocs = docs.slice(i, i + PARALLEL_PROCESSING_LIMIT);
 
-      try {
-        await jobRef.update({
-          currentEmail: doc.id,
-        });
+      await jobRef.update({
+        currentEmail: `Processing batch ${
+          Math.floor(i / PARALLEL_PROCESSING_LIMIT) + 1
+        }/${Math.ceil(docs.length / PARALLEL_PROCESSING_LIMIT)}`,
+      });
 
-        await processEmailDocument(doc.id, doc.data());
-        processedCount++;
+      const batchProcessed = await processEmailBatch(batchDocs);
+      processedCount += batchProcessed;
 
-        await jobRef.update({
-          processed: processedCount,
-        });
-      } catch (error) {
-        console.error(
-          `Error processing email ${doc.id}:`,
-          getErrorMessage(error)
-        );
-        await releaseEmailProcessing(doc.id);
-      }
+      await jobRef.update({
+        processed: processedCount,
+      });
     }
 
     let remainingCount = 0;
@@ -557,7 +567,7 @@ async function runJobProcessor(jobId: string): Promise<void> {
       processed: processedCount,
       remaining: remainingCount,
       internalMovementsDetected,
-      error: indexError,
+      ...(indexError && { error: indexError }),
       currentEmail: admin.firestore.FieldValue.delete(),
       completedAt: admin.firestore.FieldValue.serverTimestamp(),
       logs: admin.firestore.FieldValue.arrayUnion(completedLog),

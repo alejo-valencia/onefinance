@@ -12,8 +12,8 @@ import {
 
 const MAX_TIMEOUT_SECONDS = 540;
 const TIMEOUT_BUFFER_MS = 30 * 1000;
-const DEFAULT_BATCH_SIZE = 50;
-const PARALLEL_PROCESSING_LIMIT = 10;
+const DEFAULT_BATCH_SIZE = 10;
+const PARALLEL_PROCESSING_LIMIT = 1; // Process one email at a time, agents run in parallel
 const PROCESSING_LOCK_TIMEOUT_MS = 15 * 60 * 1000;
 
 const httpOptions: HttpsOptions = {

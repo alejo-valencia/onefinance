@@ -384,6 +384,7 @@ export async function processTransactionWithAgents(
   );
 
   try {
+    // Run all 3 agents in parallel for speed
     const [classification, categorization, timeExtraction] = await Promise.all([
       classifyTransaction(subject, body),
       categorizeTransaction(subject, body),

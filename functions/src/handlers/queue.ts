@@ -221,6 +221,8 @@ async function detectAndFlagInternalMovements(): Promise<{
       .collection(COLLECTIONS.TRANSACTIONS)
       .where("classification.should_track", "==", true)
       .where("internal_movement_checked", "==", false)
+      .orderBy("createdAt", "desc")
+      .limit(50)
       .get();
   } catch (error) {
     if (isFirestoreIndexError(error)) {

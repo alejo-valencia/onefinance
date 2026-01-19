@@ -433,6 +433,8 @@ const TIME_EXTRACTION_SCHEMA = {
 
 let openaiClient: OpenAI | null = null;
 const OPENAI_REQUEST_TIMEOUT_MS = 15000;
+const MAX_RETRIES = 3;
+const RETRY_DELAY_MS = 2000;
 
 function getOpenAIClient(): OpenAI {
   const apiKey = process.env.OPENAI_API_KEY;
@@ -447,17 +449,41 @@ function getOpenAIClient(): OpenAI {
 
 async function createChatCompletionWithTimeout(
   client: OpenAI,
-  params: OpenAI.ChatCompletionCreateParamsNonStreaming
+  params: OpenAI.ChatCompletionCreateParamsNonStreaming,
+  retryCount = 0
 ): Promise<OpenAI.ChatCompletion> {
   const controller = new AbortController();
   const timeout = setTimeout(
     () => controller.abort(),
     OPENAI_REQUEST_TIMEOUT_MS
   );
+
   try {
     return await client.chat.completions.create(params, {
       signal: controller.signal,
     });
+  } catch (error: any) {
+    if (retryCount < MAX_RETRIES) {
+      // Retry on timeout or 5xx errors
+      if (
+        error.name === "AbortError" ||
+        error.status === 429 ||
+        (error.status >= 500 && error.status < 600)
+      ) {
+        console.warn(
+          `OpenAI request failed (attempt ${
+            retryCount + 1
+          }/${MAX_RETRIES}). Retrying...`,
+          error.message
+        );
+        clearTimeout(timeout);
+        await new Promise((resolve) =>
+          setTimeout(resolve, RETRY_DELAY_MS * (retryCount + 1))
+        );
+        return createChatCompletionWithTimeout(client, params, retryCount + 1);
+      }
+    }
+    throw error;
   } finally {
     clearTimeout(timeout);
   }

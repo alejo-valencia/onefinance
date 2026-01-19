@@ -1,3 +1,4 @@
+import { Routes, Route, Navigate } from "react-router-dom";
 import { useAuth } from "./context/AuthContext";
 import { useConfig } from "./context/ConfigContext";
 import Navbar from "./components/Navbar";
@@ -22,7 +23,20 @@ function App() {
     <div className="min-h-screen flex flex-col">
       <Navbar />
       <main className="flex-1 flex flex-col">
-        {user && isAuthorized ? <Dashboard /> : <LoginScreen />}
+        {user && isAuthorized ? (
+          <Routes>
+            <Route path="/admin" element={<Dashboard />} />
+            <Route
+              path="/dashboard"
+              element={
+                <div className="p-8 text-white">Dashboard Content (Empty)</div>
+              }
+            />
+            <Route path="*" element={<Navigate to="/dashboard" replace />} />
+          </Routes>
+        ) : (
+          <LoginScreen />
+        )}
       </main>
       <footer className="text-center py-6 px-4 text-gray-500 text-sm border-t border-white/5">
         <p>OneFinance Gmail Integration</p>

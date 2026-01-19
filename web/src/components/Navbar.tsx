@@ -1,7 +1,13 @@
+import { NavLink } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 
 function Navbar() {
   const { user, isAuthorized, signIn, signOutUser } = useAuth();
+
+  const navLinkClass = ({ isActive }: { isActive: boolean }) =>
+    `text-sm font-medium transition-colors ${
+      isActive ? "text-green-500" : "text-gray-300 hover:text-white"
+    }`;
 
   return (
     <header>
@@ -29,6 +35,18 @@ function Navbar() {
                 </p>
               </div>
             </div>
+
+            {/* Navigation Links */}
+            {user && isAuthorized && (
+              <div className="hidden md:flex items-center gap-6">
+                <NavLink to="/admin" className={navLinkClass}>
+                  Admin
+                </NavLink>
+                <NavLink to="/dashboard" className={navLinkClass}>
+                  Dashboard
+                </NavLink>
+              </div>
+            )}
 
             {/* User Section */}
             <div className="flex items-center gap-2 sm:gap-4">

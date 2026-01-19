@@ -7,26 +7,40 @@ Automatically capture and store emails from specific Gmail labels using Firebase
 ## 📁 Project Structure
 
 ```
-functions/
-├── src/
-│   ├── index.ts                 # 🚀 Main entry point - exports all functions
-│   ├── config/
-│   │   └── constants.ts         # ⚙️ Configuration (labels, topics, OAuth)
-│   ├── handlers/
-│   │   ├── auth.ts              # 🔐 OAuth flow (authGmail, oauthCallback)
-│   │   ├── webhook.ts           # 📬 Gmail webhook handler
-│   │   ├── queue.ts             # 📤 Email queue processor & internal movement detection
-│   │   └── admin.ts             # 🛠️ Utility endpoints
-│   ├── services/
-│   │   ├── gmail.ts             # 📧 Gmail API client & helpers
-│   │   ├── email.ts             # 💾 Email storage operations
-│   │   ├── emailProcessor.ts    # 🔄 Shared email processing logic
-│   │   └── openai.ts            # 🤖 OpenAI agents (classification, categorization, time, internal)
-│   ├── types/
-│   │   └── index.ts             # 📝 TypeScript type definitions
-│   └── utils/
-│       └── index.ts             # 🛠️ Shared utilities (auth, error handling)
-└── lib/                         # 📦 Compiled JavaScript (gitignored)
+onefinance/
+├── firebase.json              # Firebase configuration
+├── firestore.rules            # Firestore security rules
+├── firestore.indexes.json     # Firestore indexes
+│
+├── web/                       # 🌐 Vite + React Frontend
+│   ├── src/
+│   │   ├── main.tsx           # App entry point
+│   │   ├── App.tsx            # Main app component
+│   │   ├── components/        # React components
+│   │   │   ├── Header.tsx
+│   │   │   ├── Footer.tsx
+│   │   │   ├── AuthSection.tsx
+│   │   │   ├── Dashboard.tsx
+│   │   │   ├── cards/         # Dashboard endpoint cards
+│   │   │   └── ui/            # Reusable UI components
+│   │   ├── context/           # React context providers
+│   │   │   ├── AuthContext.tsx
+│   │   │   └── ConfigContext.tsx
+│   │   ├── hooks/             # Custom React hooks
+│   │   └── styles/            # CSS styles
+│   ├── .env.example           # Environment variables template
+│   ├── package.json
+│   └── vite.config.ts
+│
+└── functions/                 # ☁️ Firebase Cloud Functions
+    ├── src/
+    │   ├── index.ts           # Main entry point
+    │   ├── config/constants.ts
+    │   ├── handlers/          # HTTP handlers
+    │   ├── services/          # Business logic
+    │   ├── types/             # TypeScript types
+    │   └── utils/             # Shared utilities
+    └── lib/                   # Compiled JavaScript
 ```
 
 ## ☁️ Cloud Functions (v2)
@@ -258,40 +272,60 @@ Before deploying this project, you need to replace the placeholder values with y
    OPENAI_API_KEY=sk-your-openai-api-key
    ```
 
-### Step 3: Configure Dashboard (Optional)
+### Step 3: Configure Dashboard
 
-The web dashboard at `index.js` provides a UI for managing endpoints.
+The web dashboard provides a UI for managing endpoints.
 
 1. Copy the example file:
 
    ```bash
+   cd web
    cp .env.example .env
    ```
 
-2. **`.env`** (root) - Fill in your values:
+2. **`web/.env`** - Fill in your values:
 
    ```bash
-   PORT=3000
-   FUNCTIONS_BASE_URL=https://us-central1-YOUR_PROJECT_ID.cloudfunctions.net
-   AUTHORIZED_EMAIL=your-email@gmail.com
+   # Firebase Configuration
+   VITE_FIREBASE_API_KEY=your-api-key
+   VITE_FIREBASE_AUTH_DOMAIN=your-project.firebaseapp.com
+   VITE_FIREBASE_PROJECT_ID=your-project-id
+
+   # App Configuration
+   VITE_AUTHORIZED_EMAIL=your-email@gmail.com
+   VITE_FUNCTIONS_BASE_URL=https://us-central1-YOUR_PROJECT_ID.cloudfunctions.net
    ```
 
-3. Run the dashboard:
+3. Run the dashboard in development:
+
    ```bash
-   npm start
+   npm run dev
+   ```
+
+4. Build for production:
+
+   ```bash
+   npm run build
+   ```
+
+5. Deploy to Firebase Hosting:
+   ```bash
+   cd ..  # Return to project root
+   firebase deploy --only hosting
    ```
 
 ### What to Replace
 
-| Placeholder                | Description               | Where to Get It                                                           |
-| -------------------------- | ------------------------- | ------------------------------------------------------------------------- |
-| `YOUR_PROJECT_ID`          | Your Firebase project ID  | [Firebase Console](https://console.firebase.google.com)                   |
-| `your-client-id`           | OAuth 2.0 Client ID       | [Google Cloud Console](https://console.cloud.google.com/apis/credentials) |
-| `your-client-secret`       | OAuth 2.0 Client Secret   | Same as above                                                             |
-| `Label_xxxxxxxxxx`         | Gmail label ID to monitor | Run `getLabels` endpoint after setup                                      |
-| `your-secure-random-token` | API authentication token  | Generate with `openssl rand -hex 32`                                      |
-| `sk-your-openai-api-key`   | OpenAI API key            | [OpenAI Platform](https://platform.openai.com/api-keys)                   |
-| `your-email@gmail.com`     | Email for dashboard auth  | Your Gmail address                                                        |
+| Placeholder                | Description               | Where to Get It                                                            |
+| -------------------------- | ------------------------- | -------------------------------------------------------------------------- |
+| `YOUR_PROJECT_ID`          | Your Firebase project ID  | [Firebase Console](https://console.firebase.google.com)                    |
+| `your-client-id`           | OAuth 2.0 Client ID       | [Google Cloud Console](https://console.cloud.google.com/apis/credentials)  |
+| `your-client-secret`       | OAuth 2.0 Client Secret   | Same as above                                                              |
+| `Label_xxxxxxxxxx`         | Gmail label ID to monitor | Run `getLabels` endpoint after setup                                       |
+| `your-secure-random-token` | API authentication token  | Generate with `openssl rand -hex 32`                                       |
+| `sk-your-openai-api-key`   | OpenAI API key            | [OpenAI Platform](https://platform.openai.com/api-keys)                    |
+| `your-email@gmail.com`     | Email for dashboard auth  | Your Gmail address                                                         |
+| `your-api-key`             | Firebase Web API Key      | [Firebase Console](https://console.firebase.google.com) → Project Settings |
 
 ---
 

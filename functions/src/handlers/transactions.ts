@@ -52,3 +52,55 @@ export const getTransactions = onRequest(async (req, res): Promise<void> => {
     res.status(500).json({ success: false, error: getErrorMessage(error) });
   }
 });
+
+export const updateTransaction = onRequest(async (req, res): Promise<void> => {
+  res.set("Access-Control-Allow-Origin", "*");
+  res.set("Access-Control-Allow-Methods", "POST, OPTIONS");
+  res.set("Access-Control-Allow-Headers", "Authorization, Content-Type");
+
+  if (req.method === "OPTIONS") {
+    res.status(204).send("");
+    return;
+  }
+
+  if (!(await validateAuth(req, res))) return;
+
+  try {
+    const { transactionId, category, subcategory, confirmed } = req.body;
+
+    if (!transactionId) {
+      res
+        .status(400)
+        .json({ success: false, error: "transactionId is required" });
+      return;
+    }
+
+    const updateData: Record<string, unknown> = {};
+
+    if (category !== undefined) {
+      updateData["categorization.category"] = category;
+    }
+    if (subcategory !== undefined) {
+      updateData["categorization.subcategory"] = subcategory;
+    }
+    if (confirmed !== undefined) {
+      updateData["confirmed"] = confirmed;
+    }
+
+    if (Object.keys(updateData).length === 0) {
+      res.status(400).json({ success: false, error: "No fields to update" });
+      return;
+    }
+
+    await admin
+      .firestore()
+      .collection(COLLECTIONS.TRANSACTIONS)
+      .doc(transactionId)
+      .update(updateData);
+
+    res.json({ success: true, message: "Transaction updated successfully" });
+  } catch (error) {
+    console.error("Error updating transaction:", error);
+    res.status(500).json({ success: false, error: getErrorMessage(error) });
+  }
+});

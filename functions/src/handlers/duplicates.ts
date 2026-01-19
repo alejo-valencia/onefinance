@@ -151,15 +151,15 @@ async function detectDuplicatesForDate(
       ? result.pairs.find(
           (p) => p.outgoing_id === doc.id || p.incoming_id === doc.id,
         )
-      : undefined;
+      : null;
 
     const internalMovementLog: LogEntry = {
       timestamp: logTimestamp,
       event: "duplicate_detection_processed",
       details: {
         isInternalMovement: isInternal,
-        pairReason: matchingPair?.reason,
-        notes: result.notes,
+        pairReason: matchingPair?.reason ?? null,
+        notes: result.notes ?? null,
         targetDate,
       },
     };

@@ -17,6 +17,71 @@ import {
 } from "date-fns";
 import { useApi } from "../hooks/useApi";
 
+const CATEGORIES: Record<string, string[]> = {
+  food_dining: [
+    "groceries",
+    "restaurants",
+    "delivery",
+    "coffee_bakery",
+    "bars_alcohol",
+  ],
+  transportation: [
+    "fuel",
+    "public_transit",
+    "rideshare",
+    "parking_tolls",
+    "vehicle_maintenance",
+  ],
+  housing: [
+    "rent_mortgage",
+    "utilities_electric",
+    "utilities_water",
+    "utilities_gas",
+    "internet_tv",
+    "phone_plan",
+    "home_maintenance",
+  ],
+  shopping: [
+    "clothing_accessories",
+    "electronics",
+    "home_furniture",
+    "personal_care",
+    "pets",
+    "gifts",
+  ],
+  entertainment: [
+    "streaming",
+    "gaming",
+    "movies_events",
+    "books_magazines",
+    "hobbies",
+  ],
+  health: [
+    "medical_appointments",
+    "pharmacy_medications",
+    "gym_fitness",
+    "insurance_health",
+  ],
+  financial: [
+    "bank_fees",
+    "loan_payment",
+    "credit_card_payment",
+    "insurance_other",
+    "investments",
+    "taxes",
+  ],
+  education: ["tuition_courses", "books_supplies", "subscriptions_learning"],
+  travel: ["flights", "hotels_lodging", "travel_activities"],
+  income: [
+    "salary",
+    "freelance",
+    "reimbursement",
+    "gift_received",
+    "investment_return",
+  ],
+  other: ["uncategorized"],
+};
+
 interface Transaction {
   id: string;
   classification?: {
@@ -35,6 +100,7 @@ interface Transaction {
     transaction_datetime: string;
   };
   internal_movement?: boolean;
+  confirmed?: boolean;
 }
 
 type ViewMode = "day" | "week" | "month";
@@ -86,6 +152,54 @@ function TransactionList() {
     }
   }, [callApi, getDateRange]);
 
+  const updateTransaction = async (
+    transactionId: string,
+    updates: { category?: string; subcategory?: string; confirmed?: boolean },
+  ) => {
+    try {
+      await callApi("/updateTransaction", "POST", {
+        transactionId,
+        ...updates,
+      });
+      // Update local state
+      setTransactions((prev) =>
+        prev.map((t) =>
+          t.id === transactionId
+            ? {
+                ...t,
+                categorization: {
+                  category:
+                    updates.category ?? t.categorization?.category ?? "",
+                  subcategory:
+                    updates.subcategory ?? t.categorization?.subcategory ?? "",
+                },
+                confirmed: updates.confirmed ?? t.confirmed,
+              }
+            : t,
+        ),
+      );
+    } catch (error) {
+      console.error("Failed to update transaction", error);
+    }
+  };
+
+  const handleCategoryChange = (transactionId: string, category: string) => {
+    const subcategories = CATEGORIES[category] || [];
+    const subcategory = subcategories[0] || "";
+    updateTransaction(transactionId, { category, subcategory });
+  };
+
+  const handleSubcategoryChange = (
+    transactionId: string,
+    subcategory: string,
+  ) => {
+    updateTransaction(transactionId, { subcategory });
+  };
+
+  const handleConfirmToggle = (transactionId: string, confirmed: boolean) => {
+    updateTransaction(transactionId, { confirmed });
+  };
+
   useEffect(() => {
     fetchTransactions();
   }, [fetchTransactions]);
@@ -129,6 +243,26 @@ function TransactionList() {
       currency: "COP",
       minimumFractionDigits: 0,
     }).format(amount);
+  };
+
+  const cleanDescription = (description: string) => {
+    const patternsToRemove = [
+      /compra en establecimiento\s*/gi,
+      /purchase at\s*/gi,
+      /descuento en\s*/gi,
+      /lugar de transacción:\s*/gi,
+      /internet en\s*/gi,
+      /internet,\s*/gi,
+      /internet\s*/gi,
+      /compra en\s*/gi,
+      /\ben\b\s*/gi,
+      /,\s*/g,
+    ];
+    let cleaned = description;
+    for (const pattern of patternsToRemove) {
+      cleaned = cleaned.replace(pattern, "");
+    }
+    return cleaned.trim();
   };
 
   return (
@@ -184,10 +318,11 @@ function TransactionList() {
           <table className="w-full text-left text-sm text-gray-300">
             <thead className="bg-white/5 uppercase font-medium text-xs text-gray-400">
               <tr>
+                <th className="px-4 py-3 text-center">✓</th>
                 <th className="px-4 py-3">Date</th>
                 <th className="px-4 py-3">Description</th>
                 <th className="px-4 py-3">Category</th>
-                <th className="px-4 py-3">Method</th>
+                <th className="px-4 py-3">Subcategory</th>
                 <th className="px-4 py-3 text-right">Amount</th>
               </tr>
             </thead>
@@ -199,16 +334,29 @@ function TransactionList() {
                   tx?.type === "outgoing" ||
                   tx?.type === "payment" ||
                   tx?.type === "transfer";
+                const currentCategory = t.categorization?.category || "";
+                const currentSubcategory = t.categorization?.subcategory || "";
+                const isConfirmed = t.confirmed ?? false;
 
                 return (
                   <tr key={t.id} className="hover:bg-white/5 transition-colors">
+                    <td className="px-4 py-3 text-center">
+                      <input
+                        type="checkbox"
+                        checked={isConfirmed}
+                        onChange={(e) =>
+                          handleConfirmToggle(t.id, e.target.checked)
+                        }
+                        className="w-4 h-4 rounded border-gray-500 bg-white/10 text-indigo-600 focus:ring-indigo-500 focus:ring-offset-0 cursor-pointer"
+                      />
+                    </td>
                     <td className="px-4 py-3 whitespace-nowrap">
                       {formatDate(t.timeExtraction?.transaction_datetime) ||
                         "N/A"}
                     </td>
                     <td className="px-4 py-3">
                       <div className="font-medium text-white max-w-xs truncate">
-                        {tx?.description || "Unknown"}
+                        {cleanDescription(tx?.description || "Unknown")}
                       </div>
                       {t.internal_movement && (
                         <span className="text-xs text-yellow-500 bg-yellow-500/10 px-1.5 py-0.5 rounded ml-2">
@@ -217,15 +365,59 @@ function TransactionList() {
                       )}
                     </td>
                     <td className="px-4 py-3">
-                      <div className="capitalize text-white">
-                        {t.categorization?.category?.replace("_", " ") || "-"}
-                      </div>
-                      <div className="text-xs opacity-60">
-                        {t.categorization?.subcategory?.replace("_", " ") || ""}
-                      </div>
+                      {isConfirmed ? (
+                        <div className="capitalize text-white">
+                          {currentCategory.replace(/_/g, " ") || "-"}
+                        </div>
+                      ) : (
+                        <select
+                          value={currentCategory}
+                          onChange={(e) =>
+                            handleCategoryChange(t.id, e.target.value)
+                          }
+                          className="bg-white/10 border border-white/20 rounded px-2 py-1 text-white text-xs capitalize cursor-pointer focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                        >
+                          <option value="" className="bg-gray-800">
+                            Select category
+                          </option>
+                          {Object.keys(CATEGORIES).map((cat) => (
+                            <option
+                              key={cat}
+                              value={cat}
+                              className="bg-gray-800 capitalize"
+                            >
+                              {cat.replace(/_/g, " ")}
+                            </option>
+                          ))}
+                        </select>
+                      )}
                     </td>
-                    <td className="px-4 py-3 capitalize">
-                      {tx?.method || "-"}
+                    <td className="px-4 py-3">
+                      {isConfirmed ? (
+                        <div className="capitalize text-white">
+                          {currentSubcategory.replace(/_/g, " ") || "-"}
+                        </div>
+                      ) : currentCategory && CATEGORIES[currentCategory] ? (
+                        <select
+                          value={currentSubcategory}
+                          onChange={(e) =>
+                            handleSubcategoryChange(t.id, e.target.value)
+                          }
+                          className="bg-white/10 border border-white/20 rounded px-2 py-1 text-white text-xs capitalize cursor-pointer focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                        >
+                          {CATEGORIES[currentCategory].map((sub) => (
+                            <option
+                              key={sub}
+                              value={sub}
+                              className="bg-gray-800 capitalize"
+                            >
+                              {sub.replace(/_/g, " ")}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <span className="text-gray-500">-</span>
+                      )}
                     </td>
                     <td
                       className={`px-4 py-3 text-right font-medium ${

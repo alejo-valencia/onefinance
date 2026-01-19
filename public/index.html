@@ -94,28 +94,27 @@
           </section>
 
           <section class="endpoint-card">
-            <h2>📨 Test Process Emails</h2>
-            <p>Test processing recent emails (for development/testing).</p>
+            <h2>📨 Fetch Emails</h2>
+            <p>Fetch and store recent emails from your target label.</p>
             <form
               class="endpoint-form"
-              data-endpoint="/testProcessEmails"
+              data-endpoint="/fetchEmails"
               data-method="GET"
             >
               <div class="form-group">
-                <label for="count"
-                  >Email Count (optional, default: 3, max: 20)</label
+                <label for="hours"
+                  >Time Window in Hours (optional, default: 24)</label
                 >
                 <input
                   type="number"
-                  name="count"
-                  id="count"
-                  placeholder="3"
+                  name="hours"
+                  id="hours"
+                  placeholder="24"
                   min="1"
-                  max="20"
                 />
               </div>
               <button type="submit" class="btn btn-warning">
-                Run Test Processing
+                Fetch Emails
               </button>
             </form>
             <div class="result hidden"></div>

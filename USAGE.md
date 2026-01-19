@@ -11,7 +11,7 @@ This comprehensive guide covers all endpoints and features of the OneFinance Gma
   - [oauthCallback](#2-oauthcallback---oauth-callback)
   - [getLabels](#3-getlabels---list-gmail-labels)
   - [renewWatch](#4-renewwatch---renew-gmail-subscription)
-  - [testProcessEmails](#5-testprocessemails---test-email-fetching)
+  - [fetchEmails](#5-fetchemails---fetch-emails)
   - [gmailWebhook](#6-gmailwebhook---pubsub-webhook)
   - [processEmailQueue](#7-processemailqueue---start-email-processing)
   - [getProcessStatus](#8-getprocessstatus---check-job-progress)
@@ -63,7 +63,7 @@ Set the `TARGET_LABEL` in your `.env` file with your label ID.
 
 ### Step 4: Test Processing
 
-Use `testProcessEmails` to verify emails are being captured correctly.
+Use `fetchEmails` to verify emails are being captured correctly.
 
 ### Step 5: Deploy & Monitor
 
@@ -270,9 +270,9 @@ curl "https://us-central1-YOUR_PROJECT_ID.cloudfunctions.net/renewWatch?token=YO
 ---
 
 <details>
-<summary><h3>5. <code>testProcessEmails</code> - Test Email Fetching</h3></summary>
+<summary><h3>5. <code>fetchEmails</code> - Fetch Emails</h3></summary>
 
-**Description:** Fetches and stores recent emails from your target label. Useful for testing the email capture without waiting for new emails.
+**Description:** Fetches and stores recent emails from your target label based on a time window. Useful for capturing emails without waiting for new ones.
 
 | Property          | Value  |
 | ----------------- | ------ |
@@ -283,7 +283,7 @@ curl "https://us-central1-YOUR_PROJECT_ID.cloudfunctions.net/renewWatch?token=YO
 **URL:**
 
 ```
-/testProcessEmails?token=YOUR_API_TOKEN
+/fetchEmails?token=YOUR_API_TOKEN
 ```
 
 **Query Parameters:**
@@ -291,19 +291,19 @@ curl "https://us-central1-YOUR_PROJECT_ID.cloudfunctions.net/renewWatch?token=YO
 | Parameter | Type   | Default  | Description                                      |
 | --------- | ------ | -------- | ------------------------------------------------ |
 | `token`   | string | required | API authentication token                         |
-| `count`   | number | `3`      | Number of recent emails to process (max results) |
+| `hours`   | number | `24`     | Time window in hours to fetch emails from        |
 
 **Examples:**
 
 ```bash
-# Process last 3 emails (default)
-curl "https://us-central1-YOUR_PROJECT_ID.cloudfunctions.net/testProcessEmails?token=YOUR_API_TOKEN"
+# Fetch emails from last 24 hours (default)
+curl "https://us-central1-YOUR_PROJECT_ID.cloudfunctions.net/fetchEmails?token=YOUR_API_TOKEN"
 
-# Process last 10 emails
-curl "https://us-central1-YOUR_PROJECT_ID.cloudfunctions.net/testProcessEmails?token=YOUR_API_TOKEN&count=10"
+# Fetch emails from last 6 hours
+curl "https://us-central1-YOUR_PROJECT_ID.cloudfunctions.net/fetchEmails?token=YOUR_API_TOKEN&hours=6"
 
-# Process last 20 emails
-curl "https://us-central1-YOUR_PROJECT_ID.cloudfunctions.net/testProcessEmails?token=YOUR_API_TOKEN&count=20"
+# Fetch emails from last 48 hours
+curl "https://us-central1-YOUR_PROJECT_ID.cloudfunctions.net/fetchEmails?token=YOUR_API_TOKEN&hours=48"
 ```
 
 **Success Response (200) - With Emails:**
@@ -853,7 +853,7 @@ Stores processing job status and progress.
 | `oauthCallback`         | GET       | ❌   | OAuth callback (Google redirects) |
 | `getLabels`             | GET       | ✅   | List all Gmail labels             |
 | `renewWatch`            | GET       | ✅   | Renew Gmail watch subscription    |
-| `testProcessEmails`     | GET       | ✅   | Fetch & store recent emails       |
+| `fetchEmails`           | GET       | ✅   | Fetch & store recent emails       |
 | `gmailWebhook`          | POST      | ❌   | Pub/Sub webhook (Google calls)    |
 | `processEmailQueue`     | GET       | ✅   | Start async email processing      |
 | `getProcessStatus`      | GET       | ✅   | Check job progress                |

@@ -101,6 +101,7 @@ export function generateAuthUrl(): string {
   ensureGmailOAuthEnv();
   return oauth2Client.generateAuthUrl({
     access_type: "offline",
+    prompt: "consent",
     scope: ["https://www.googleapis.com/auth/gmail.readonly"],
   });
 }

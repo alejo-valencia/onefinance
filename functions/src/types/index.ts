@@ -91,7 +91,7 @@ export interface LabelsResponse {
   error?: string;
 }
 
-export interface TestProcessEmailsResponse {
+export interface FetchEmailsResponse {
   success: boolean;
   message?: string;
   processed: number;

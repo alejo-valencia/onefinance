@@ -40,7 +40,7 @@ All functions use **Firebase Cloud Functions 2nd generation** for improved perfo
 | `gmailWebhook`          | HTTP      | 📬 Receives Pub/Sub notifications, stores emails        |
 | `renewWatch`            | HTTP      | 🔄 Renews Gmail watch subscription (call before expiry) |
 | `getLabels`             | HTTP      | 🏷️ Lists all Gmail labels with IDs                      |
-| `testProcessEmails`     | HTTP      | 🧪 Test endpoint - processes recent emails              |
+| `fetchEmails`           | HTTP      | 📨 Fetch and store emails from a time window            |
 | `processEmailQueue`     | HTTP      | 📤 Start async email processing (returns job ID)        |
 | `getProcessStatus`      | HTTP      | 📊 Get status of a processing job                       |
 | `unprocessAllEmails`    | HTTP      | 🔁 Reset all emails to unprocessed (testing)            |
@@ -135,14 +135,14 @@ https://us-central1-YOUR-PROJECT.cloudfunctions.net/gmailWebhook
 
 ## 🧪 Testing
 
-Process recent emails without waiting for new ones:
+Fetch recent emails without waiting for new ones:
 
 ```bash
-# Process last 3 emails (default)
-curl "https://us-central1-YOUR-PROJECT.cloudfunctions.net/testProcessEmails?token=YOUR_API_TOKEN"
+# Fetch emails from last 24 hours (default)
+curl "https://us-central1-YOUR-PROJECT.cloudfunctions.net/fetchEmails?token=YOUR_API_TOKEN"
 
-# Process last 10 emails
-curl "https://us-central1-YOUR-PROJECT.cloudfunctions.net/testProcessEmails?token=YOUR_API_TOKEN&count=10"
+# Fetch emails from last 6 hours
+curl "https://us-central1-YOUR-PROJECT.cloudfunctions.net/fetchEmails?token=YOUR_API_TOKEN&hours=6"
 ```
 
 ## 🔄 Maintenance

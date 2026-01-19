@@ -56,8 +56,19 @@ export const oauthCallback = onRequest(async (req, res): Promise<void> => {
 
     const tokens = await getTokensFromCode(code);
 
+    console.log("OAuth tokens received:", {
+      hasAccessToken: !!tokens.access_token,
+      hasRefreshToken: !!tokens.refresh_token,
+      expiryDate: tokens.expiry_date,
+      tokenType: tokens.token_type,
+    });
+
+    if (!tokens.refresh_token) {
+      console.warn("WARNING: No refresh_token received from Google OAuth!");
+    }
+
     const gmailConfig: GmailConfig = { tokens };
-    await getGmailConfigRef().set(gmailConfig);
+    await getGmailConfigRef().set(gmailConfig, { merge: true });
 
     const gmail = google.gmail({ version: "v1", auth: oauth2Client });
     const watchResult = await gmail.users.watch({

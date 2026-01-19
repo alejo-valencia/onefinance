@@ -4,8 +4,8 @@ import { getGmailClient } from "../services/gmail";
 import { processEmailMessages } from "../services/emailProcessor";
 import {
   ErrorResponse,
+  FetchEmailsResponse,
   LabelsResponse,
-  TestProcessEmailsResponse,
   WatchResponse,
 } from "../types";
 import { getErrorMessage, validateAuth, requireEnvVars } from "../utils";
@@ -100,7 +100,7 @@ export const getLabels = onRequest(async (req, res): Promise<void> => {
   }
 });
 
-export const testProcessEmails = onRequest(async (req, res): Promise<void> => {
+export const fetchEmails = onRequest(async (req, res): Promise<void> => {
   res.set("Access-Control-Allow-Origin", "*");
   res.set("Access-Control-Allow-Methods", "GET, OPTIONS");
   res.set("Access-Control-Allow-Headers", "Authorization, Content-Type");
@@ -114,25 +114,28 @@ export const testProcessEmails = onRequest(async (req, res): Promise<void> => {
   requireEnvVars(["TARGET_LABEL"]);
 
   try {
-    const countParam = req.query.count;
+    const hoursParam = req.query.hours;
     const parsed =
-      typeof countParam === "string" ? parseInt(countParam, 10) : 3;
-    const maxResults = isNaN(parsed) || parsed < 1 ? 3 : Math.min(parsed, 20);
+      typeof hoursParam === "string" ? parseInt(hoursParam, 10) : 24;
+    const hours = isNaN(parsed) || parsed < 1 ? 24 : parsed;
+
+    // Calculate the timestamp for "hours" ago
+    const afterTimestamp = Math.floor(Date.now() / 1000) - hours * 60 * 60;
 
     const { gmail } = await getGmailClient();
 
     const listResponse = await gmail.users.messages.list({
       userId: "me",
-      maxResults,
       labelIds: [TARGET_LABEL],
+      q: `after:${afterTimestamp}`,
     });
 
     const messages = listResponse.data.messages ?? [];
 
     if (messages.length === 0) {
-      const response: TestProcessEmailsResponse = {
+      const response: FetchEmailsResponse = {
         success: true,
-        message: `No emails found in the target label (${TARGET_LABEL})`,
+        message: `No emails found in the target label (${TARGET_LABEL}) from the last ${hours} hour(s)`,
         processed: 0,
       };
       res.json(response);
@@ -141,9 +144,9 @@ export const testProcessEmails = onRequest(async (req, res): Promise<void> => {
 
     const result = await processEmailMessages(gmail, messages);
 
-    const response: TestProcessEmailsResponse = {
+    const response: FetchEmailsResponse = {
       success: true,
-      message: `Successfully processed ${result.processed} emails from target label`,
+      message: `Successfully processed ${result.processed} emails from the last ${hours} hour(s)`,
       processed: result.processed,
       emails: result.emails,
     };
@@ -153,7 +156,7 @@ export const testProcessEmails = onRequest(async (req, res): Promise<void> => {
       success: false,
       error: getErrorMessage(error),
       message:
-        "Failed to process test emails. Check Gmail API access and target label configuration.",
+        "Failed to fetch emails. Check Gmail API access and target label configuration.",
     };
     res.status(500).json(errorResponse);
   }

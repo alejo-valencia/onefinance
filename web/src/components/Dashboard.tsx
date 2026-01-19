@@ -1,9 +1,21 @@
 import { useState, useEffect, useCallback } from "react";
-import { useAuth } from "../context/AuthContext";
-import { useConfig } from "../context/ConfigContext";
+import {
+  format,
+  startOfDay,
+  endOfDay,
+  startOfWeek,
+  endOfWeek,
+  startOfMonth,
+  endOfMonth,
+  addDays,
+  addWeeks,
+  addMonths,
+  subDays,
+  subWeeks,
+  subMonths,
+  getDate,
+} from "date-fns";
 import { useApi } from "../hooks/useApi";
-import ApiCard from "./ApiCard";
-import InputField from "./InputField";
 
 interface Transaction {
   id: string;
@@ -35,24 +47,18 @@ function TransactionList() {
   const [currentDate, setCurrentDate] = useState(new Date());
 
   const getDateRange = useCallback(() => {
-    const start = new Date(currentDate);
-    const end = new Date(currentDate);
+    let start: Date;
+    let end: Date;
 
-    start.setHours(0, 0, 0, 0);
-    end.setHours(23, 59, 59, 999);
-
-    if (viewMode === "week") {
-      const day = start.getDay();
-      const diff = start.getDate() - day + (day === 0 ? -6 : 1); // Adjust when day is sunday
-      start.setDate(diff);
-
-      // Reset end to start then add 6 days to ensure correct month crossing
-      end.setFullYear(start.getFullYear(), start.getMonth(), start.getDate());
-      end.setDate(start.getDate() + 6);
-    } else if (viewMode === "month") {
-      start.setDate(1);
-      end.setMonth(end.getMonth() + 1);
-      end.setDate(0);
+    if (viewMode === "day") {
+      start = startOfDay(currentDate);
+      end = endOfDay(currentDate);
+    } else if (viewMode === "week") {
+      start = startOfWeek(currentDate, { weekStartsOn: 1 });
+      end = endOfWeek(currentDate, { weekStartsOn: 1 });
+    } else {
+      start = startOfMonth(currentDate);
+      end = endOfMonth(currentDate);
     }
 
     return {
@@ -85,29 +91,36 @@ function TransactionList() {
   }, [fetchTransactions]);
 
   const handlePrev = () => {
-    const newDate = new Date(currentDate);
-    if (viewMode === "day") newDate.setDate(newDate.getDate() - 1);
-    if (viewMode === "week") newDate.setDate(newDate.getDate() - 7);
-    if (viewMode === "month") newDate.setMonth(newDate.getMonth() - 1);
-    setCurrentDate(newDate);
+    if (viewMode === "day") setCurrentDate(subDays(currentDate, 1));
+    else if (viewMode === "week") setCurrentDate(subWeeks(currentDate, 1));
+    else setCurrentDate(subMonths(currentDate, 1));
   };
 
   const handleNext = () => {
-    const newDate = new Date(currentDate);
-    if (viewMode === "day") newDate.setDate(newDate.getDate() + 1);
-    if (viewMode === "week") newDate.setDate(newDate.getDate() + 7);
-    if (viewMode === "month") newDate.setMonth(newDate.getMonth() + 1);
-    setCurrentDate(newDate);
+    if (viewMode === "day") setCurrentDate(addDays(currentDate, 1));
+    else if (viewMode === "week") setCurrentDate(addWeeks(currentDate, 1));
+    else setCurrentDate(addMonths(currentDate, 1));
   };
 
   const formatDate = (dateString?: string) => {
     if (!dateString) return "N/A";
-    return new Date(dateString).toLocaleString("es-CO", {
-      month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
+    return format(new Date(dateString), "MMM d, HH:mm");
+  };
+
+  const formatPeriodLabel = () => {
+    if (viewMode === "day") {
+      return format(currentDate, "MMMM d, yyyy");
+    } else if (viewMode === "week") {
+      const weekStart = startOfWeek(currentDate, { weekStartsOn: 1 });
+      const weekEnd = endOfWeek(currentDate, { weekStartsOn: 1 });
+      const startDay = getDate(weekStart);
+      const endDay = getDate(weekEnd);
+      const monthName = format(weekStart, "MMMM");
+      const year = format(weekStart, "yyyy");
+      return `${monthName} ${startDay} - ${endDay}, ${year}`;
+    } else {
+      return format(currentDate, "MMMM yyyy");
+    }
   };
 
   const formatCurrency = (amount: number) => {
@@ -119,11 +132,11 @@ function TransactionList() {
   };
 
   return (
-    <div className="bg-white/5 p-6 rounded-lg mb-8">
-      <div className="flex flex-col sm:flex-row justify-between items-center mb-6 gap-4">
-        <h3 className="text-xl font-bold text-white">Transactions</h3>
+    <div className="bg-white/5 p-6 rounded-lg mb-8 w-full">
+      <div className="flex flex-col gap-4 mb-6">
+        <div className="flex flex-col sm:flex-row justify-between items-center gap-4">
+          <h3 className="text-xl font-bold text-white">Transactions</h3>
 
-        <div className="flex items-center gap-4">
           <div className="flex bg-white/10 rounded-lg p-1">
             {(["day", "week", "month"] as ViewMode[]).map((mode) => (
               <button
@@ -139,40 +152,36 @@ function TransactionList() {
               </button>
             ))}
           </div>
+        </div>
 
-          <div className="flex items-center gap-2 text-white">
-            <button
-              onClick={handlePrev}
-              className="p-1 hover:bg-white/10 rounded-full transition-colors"
-            >
-              ←
-            </button>
-            <span className="font-medium min-w-[150px] text-center">
-              {currentDate.toLocaleDateString("es-CO", {
-                month: "long",
-                year: "numeric",
-                ...(viewMode === "day" ? { day: "numeric" } : {}),
-              })}
-            </span>
-            <button
-              onClick={handleNext}
-              className="p-1 hover:bg-white/10 rounded-full transition-colors"
-            >
-              →
-            </button>
-          </div>
+        <div className="flex items-center justify-center gap-2 text-white">
+          <button
+            onClick={handlePrev}
+            className="px-3 py-2 text-sm font-medium hover:bg-white/10 rounded-lg transition-colors"
+          >
+            Prev
+          </button>
+          <span className="font-medium w-56 text-center capitalize">
+            {formatPeriodLabel()}
+          </span>
+          <button
+            onClick={handleNext}
+            className="px-3 py-2 text-sm font-medium hover:bg-white/10 rounded-lg transition-colors"
+          >
+            Next
+          </button>
         </div>
       </div>
 
-      {loading ? (
-        <div className="text-center py-10 text-gray-400">Loading...</div>
-      ) : transactions.length === 0 ? (
-        <div className="text-center py-10 text-gray-400">
-          No transactions found for this period
-        </div>
-      ) : (
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-left text-sm text-gray-300">
+      <div className="overflow-x-auto">
+        {loading ? (
+          <div className="text-center py-10 text-gray-400">Loading...</div>
+        ) : transactions.length === 0 ? (
+          <div className="text-center py-10 text-gray-400">
+            No transactions found for this period
+          </div>
+        ) : (
+          <table className="w-full text-left text-sm text-gray-300">
             <thead className="bg-white/5 uppercase font-medium text-xs text-gray-400">
               <tr>
                 <th className="px-4 py-3">Date</th>
@@ -230,146 +239,16 @@ function TransactionList() {
               })}
             </tbody>
           </table>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }
 
 function Dashboard() {
-  const { getIdToken } = useAuth();
-  const { config } = useConfig();
-  const { callApi } = useApi();
-
-  // Form state
-  const [hours, setHours] = useState("");
-  const [jobId, setJobId] = useState("");
-
-  const handleGmailAuth = async () => {
-    const token = await getIdToken();
-    if (!token) throw new Error("Not authenticated");
-
-    const authUrl = config!.functionsBaseUrl + "/authGmail";
-    const response = await fetch(authUrl, {
-      method: "GET",
-      headers: { Authorization: "Bearer " + token },
-    });
-    const data = await response.json();
-
-    if (data.authUrl) {
-      window.open(data.authUrl, "_blank");
-      return "Opening Gmail authentication...";
-    }
-    throw new Error("Failed to get auth URL");
-  };
-
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 lg:py-10">
+    <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 lg:py-10">
       <TransactionList />
-
-      {/* Section Header */}
-      <div className="mb-6 sm:mb-8 border-t border-white/10 pt-8">
-        <h2 className="text-xl sm:text-2xl font-bold text-white mb-1">
-          API Controls
-        </h2>
-        <p className="text-gray-400 text-sm">
-          Manage your Gmail integration and email processing
-        </p>
-      </div>
-
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 sm:gap-6">
-        <ApiCard
-          icon="🔐"
-          title="Gmail OAuth"
-          description="Authenticate with Gmail to enable email processing."
-          buttonText="Authenticate with Gmail"
-          onSubmit={handleGmailAuth}
-          highlight
-        />
-
-        <ApiCard
-          icon="🔄"
-          title="Renew Watch"
-          description="Renew the Gmail watch subscription to continue receiving notifications."
-          buttonText="Renew Watch Subscription"
-          onSubmit={() => callApi("/renewWatch", "GET")}
-        />
-
-        <ApiCard
-          icon="🏷️"
-          title="Get Labels"
-          description="List all Gmail labels for the authenticated user."
-          buttonText="Fetch Labels"
-          onSubmit={() => callApi("/getLabels", "GET")}
-        />
-
-        <ApiCard
-          icon="📨"
-          title="Fetch Emails"
-          description="Fetch and store recent emails from your target label."
-          buttonText="Fetch Emails"
-          buttonVariant="warning"
-          onSubmit={() =>
-            callApi(
-              "/fetchEmails",
-              "GET",
-              undefined,
-              hours ? { hours } : undefined
-            )
-          }
-        >
-          <InputField
-            label="Time Window in Hours (optional, default: 24)"
-            id="hours"
-            type="number"
-            placeholder="24"
-            value={hours}
-            onChange={setHours}
-            min={1}
-          />
-        </ApiCard>
-
-        <ApiCard
-          icon="📥"
-          title="Process Email Queue"
-          description="Start async processing of all unprocessed emails in the queue."
-          buttonText="Start Queue Processing"
-          onSubmit={() => callApi("/processEmailQueue", "POST")}
-        />
-
-        <ApiCard
-          icon="📊"
-          title="Get Process Status"
-          description="Check the status of the latest or a specific processing job."
-          buttonText="Check Status"
-          onSubmit={() =>
-            callApi(
-              "/getProcessStatus",
-              "GET",
-              undefined,
-              jobId ? { jobId } : undefined
-            )
-          }
-        >
-          <InputField
-            label="Job ID (optional - defaults to latest)"
-            id="jobId"
-            type="text"
-            placeholder="Leave empty for latest job"
-            value={jobId}
-            onChange={setJobId}
-          />
-        </ApiCard>
-
-        <ApiCard
-          icon="🔄"
-          title="Unprocess All Emails"
-          description="Reset all emails to unprocessed state (for testing)."
-          buttonText="Reset All Emails"
-          buttonVariant="danger"
-          onSubmit={() => callApi("/unprocessAllEmails", "POST")}
-        />
-      </div>
     </div>
   );
 }

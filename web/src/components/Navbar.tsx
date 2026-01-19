@@ -39,11 +39,11 @@ function Navbar() {
             {/* Navigation Links */}
             {user && isAuthorized && (
               <div className="hidden md:flex items-center gap-6">
-                <NavLink to="/admin" className={navLinkClass}>
-                  Admin
-                </NavLink>
                 <NavLink to="/dashboard" className={navLinkClass}>
                   Dashboard
+                </NavLink>
+                <NavLink to="/admin" className={navLinkClass}>
+                  Admin
                 </NavLink>
               </div>
             )}

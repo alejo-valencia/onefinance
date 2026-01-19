@@ -3,6 +3,7 @@ import { useAuth } from "./context/AuthContext";
 import { useConfig } from "./context/ConfigContext";
 import Navbar from "./components/Navbar";
 import Dashboard from "./components/Dashboard";
+import Admin from "./components/Admin";
 import LoadingScreen from "./components/LoadingScreen";
 import ErrorScreen from "./components/ErrorScreen";
 import LoginScreen from "./components/LoginScreen";
@@ -25,13 +26,8 @@ function App() {
       <main className="flex-1 flex flex-col">
         {user && isAuthorized ? (
           <Routes>
-            <Route path="/admin" element={<Dashboard />} />
-            <Route
-              path="/dashboard"
-              element={
-                <div className="p-8 text-white">Dashboard Content (Empty)</div>
-              }
-            />
+            <Route path="/dashboard" element={<Dashboard />} />
+            <Route path="/admin" element={<Admin />} />
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Routes>
         ) : (

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import {
   format,
   startOfDay,
@@ -259,6 +259,32 @@ function TransactionList() {
     return cleaned.trim();
   };
 
+  const isExpenseType = (type?: string) =>
+    type === "purchase" ||
+    type === "outgoing" ||
+    type === "payment" ||
+    type === "transfer";
+
+  const { income, outcome } = useMemo(() => {
+    let inc = 0;
+    let out = 0;
+
+    for (const t of transactions) {
+      if (t.internal_movement) continue;
+      const tx = t.classification?.transaction;
+      const amount = tx?.amount || 0;
+      if (isExpenseType(tx?.type)) {
+        out += amount;
+      } else {
+        inc += amount;
+      }
+    }
+
+    return { income: inc, outcome: out };
+  }, [transactions]);
+
+  const remaining = income - outcome;
+
   return (
     <div className="bg-white/5 p-6 rounded-lg mb-8 w-full">
       <div className="flex flex-col gap-4 mb-6">
@@ -298,6 +324,45 @@ function TransactionList() {
           >
             Next
           </button>
+        </div>
+      </div>
+
+      {/* Summary Card */}
+      <div className="mb-6 p-4 bg-white/5 rounded-lg">
+        <div
+          className={`grid gap-4 ${viewMode === "month" ? "grid-cols-3" : "grid-cols-1"}`}
+        >
+          {viewMode === "month" && (
+            <div className="text-center">
+              <p className="text-xs text-gray-400 uppercase tracking-wide mb-1">
+                Income
+              </p>
+              <p className="text-lg font-semibold text-green-400">
+                +{formatCurrency(income)}
+              </p>
+            </div>
+          )}
+          <div className="text-center">
+            <p className="text-xs text-gray-400 uppercase tracking-wide mb-1">
+              Expenses
+            </p>
+            <p className="text-lg font-semibold text-red-400">
+              -{formatCurrency(outcome)}
+            </p>
+          </div>
+          {viewMode === "month" && (
+            <div className="text-center">
+              <p className="text-xs text-gray-400 uppercase tracking-wide mb-1">
+                Remaining
+              </p>
+              <p
+                className={`text-lg font-semibold ${remaining >= 0 ? "text-green-400" : "text-red-400"}`}
+              >
+                {remaining >= 0 ? "+" : ""}
+                {formatCurrency(remaining)}
+              </p>
+            </div>
+          )}
         </div>
       </div>
 

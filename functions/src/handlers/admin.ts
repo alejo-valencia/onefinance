@@ -37,7 +37,7 @@ export const renewWatch = onRequest(async (req, res): Promise<void> => {
     const expirationMs = parseInt(result.data.expiration ?? "0", 10);
     const expirationDate = new Date(expirationMs).toISOString();
     const expiresIn = Math.round(
-      (expirationMs - Date.now()) / (1000 * 60 * 60 * 24)
+      (expirationMs - Date.now()) / (1000 * 60 * 60 * 24),
     );
 
     const response: WatchResponse = {
@@ -146,8 +146,9 @@ export const fetchEmails = onRequest(async (req, res): Promise<void> => {
 
     const response: FetchEmailsResponse = {
       success: true,
-      message: `Successfully processed ${result.processed} emails from the last ${hours} hour(s)`,
+      message: `Found ${result.processed + result.skipped} emails from the last ${hours} hour(s): ${result.processed} new, ${result.skipped} already saved`,
       processed: result.processed,
+      skipped: result.skipped,
       emails: result.emails,
     };
     res.json(response);

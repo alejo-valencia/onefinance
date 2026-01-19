@@ -100,7 +100,6 @@ interface Transaction {
     transaction_datetime: string;
   };
   internal_movement?: boolean;
-  confirmed?: boolean;
 }
 
 type ViewMode = "day" | "week" | "month";
@@ -154,7 +153,7 @@ function TransactionList() {
 
   const updateTransaction = async (
     transactionId: string,
-    updates: { category?: string; subcategory?: string; confirmed?: boolean },
+    updates: { category?: string; subcategory?: string },
   ) => {
     try {
       await callApi("/updateTransaction", "POST", {
@@ -173,7 +172,6 @@ function TransactionList() {
                   subcategory:
                     updates.subcategory ?? t.categorization?.subcategory ?? "",
                 },
-                confirmed: updates.confirmed ?? t.confirmed,
               }
             : t,
         ),
@@ -194,10 +192,6 @@ function TransactionList() {
     subcategory: string,
   ) => {
     updateTransaction(transactionId, { subcategory });
-  };
-
-  const handleConfirmToggle = (transactionId: string, confirmed: boolean) => {
-    updateTransaction(transactionId, { confirmed });
   };
 
   useEffect(() => {
@@ -318,7 +312,6 @@ function TransactionList() {
           <table className="w-full text-left text-sm text-gray-300">
             <thead className="bg-white/5 uppercase font-medium text-xs text-gray-400">
               <tr>
-                <th className="px-4 py-3 text-center">✓</th>
                 <th className="px-4 py-3">Date</th>
                 <th className="px-4 py-3">Description</th>
                 <th className="px-4 py-3">Category</th>
@@ -336,39 +329,28 @@ function TransactionList() {
                   tx?.type === "transfer";
                 const currentCategory = t.categorization?.category || "";
                 const currentSubcategory = t.categorization?.subcategory || "";
-                const isConfirmed = t.confirmed ?? false;
 
                 return (
                   <tr key={t.id} className="hover:bg-white/5 transition-colors">
-                    <td className="px-4 py-3 text-center">
-                      <input
-                        type="checkbox"
-                        checked={isConfirmed}
-                        onChange={(e) =>
-                          handleConfirmToggle(t.id, e.target.checked)
-                        }
-                        className="w-4 h-4 rounded border-gray-500 bg-white/10 text-indigo-600 focus:ring-indigo-500 focus:ring-offset-0 cursor-pointer"
-                      />
-                    </td>
                     <td className="px-4 py-3 whitespace-nowrap">
                       {formatDate(t.timeExtraction?.transaction_datetime) ||
                         "N/A"}
                     </td>
                     <td className="px-4 py-3">
-                      <div className="font-medium text-white max-w-xs truncate">
-                        {cleanDescription(tx?.description || "Unknown")}
-                      </div>
-                      {t.internal_movement && (
-                        <span className="text-xs text-yellow-500 bg-yellow-500/10 px-1.5 py-0.5 rounded ml-2">
-                          Internal
+                      <div className="flex items-center gap-2">
+                        {t.internal_movement && (
+                          <span className="text-xs text-yellow-500 bg-yellow-500/10 px-1.5 py-0.5 rounded flex-shrink-0">
+                            Internal
+                          </span>
+                        )}
+                        <span className="font-medium text-white max-w-xs truncate">
+                          {cleanDescription(tx?.description || "Unknown")}
                         </span>
-                      )}
+                      </div>
                     </td>
                     <td className="px-4 py-3">
-                      {isConfirmed ? (
-                        <div className="capitalize text-white">
-                          {currentCategory.replace(/_/g, " ") || "-"}
-                        </div>
+                      {t.internal_movement ? (
+                        <span className="text-gray-500">-</span>
                       ) : (
                         <select
                           value={currentCategory}
@@ -393,10 +375,8 @@ function TransactionList() {
                       )}
                     </td>
                     <td className="px-4 py-3">
-                      {isConfirmed ? (
-                        <div className="capitalize text-white">
-                          {currentSubcategory.replace(/_/g, " ") || "-"}
-                        </div>
+                      {t.internal_movement ? (
+                        <span className="text-gray-500">-</span>
                       ) : currentCategory && CATEGORIES[currentCategory] ? (
                         <select
                           value={currentSubcategory}

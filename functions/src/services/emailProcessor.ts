@@ -5,17 +5,18 @@ import { ProcessedEmail, hasValidId } from "../types";
 
 export interface EmailProcessingResult {
   processed: number;
+  skipped: number;
   emails: ProcessedEmail[];
 }
 
 export async function processEmailMessages(
   gmail: gmail_v1.Gmail,
-  messages: gmail_v1.Schema$Message[]
+  messages: gmail_v1.Schema$Message[],
 ): Promise<EmailProcessingResult> {
   const validMessages = messages.filter(hasValidId);
 
   if (validMessages.length === 0) {
-    return { processed: 0, emails: [] };
+    return { processed: 0, skipped: 0, emails: [] };
   }
 
   const fullMessageResults = await Promise.allSettled(
@@ -24,8 +25,8 @@ export async function processEmailMessages(
         userId: "me",
         id: msg.id,
         format: "full",
-      })
-    )
+      }),
+    ),
   );
 
   const fullMessages: gmail_v1.Schema$Message[] = [];
@@ -37,24 +38,30 @@ export async function processEmailMessages(
   }
 
   const processedEmails: ProcessedEmail[] = [];
+  let skipped = 0;
 
   for (const fullMessage of fullMessages) {
     const emailData = extractEmailHeaders(fullMessage);
     const bodyText = extractEmailBody(fullMessage);
 
-    await saveEmail(emailData, bodyText);
+    const saved = await saveEmail(emailData, bodyText);
 
-    processedEmails.push({
-      id: emailData.id,
-      subject: emailData.subject,
-      from: emailData.from,
-      date: emailData.date,
-      bodyPreview: bodyText.substring(0, 200),
-    });
+    if (saved) {
+      processedEmails.push({
+        id: emailData.id,
+        subject: emailData.subject,
+        from: emailData.from,
+        date: emailData.date,
+        bodyPreview: bodyText.substring(0, 200),
+      });
+    } else {
+      skipped++;
+    }
   }
 
   return {
     processed: processedEmails.length,
+    skipped,
     emails: processedEmails,
   };
 }

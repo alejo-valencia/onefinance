@@ -103,6 +103,7 @@ export interface FetchEmailsResponse {
   success: boolean;
   message?: string;
   processed: number;
+  skipped?: number;
   emails?: ProcessedEmail[];
   error?: string;
 }
@@ -122,7 +123,7 @@ export interface ErrorResponse {
 }
 
 export function hasValidId(
-  msg: gmail_v1.Schema$Message | undefined
+  msg: gmail_v1.Schema$Message | undefined,
 ): msg is gmail_v1.Schema$Message & { id: string } {
   return msg !== undefined && typeof msg.id === "string";
 }

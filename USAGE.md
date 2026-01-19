@@ -288,10 +288,10 @@ curl "https://us-central1-YOUR_PROJECT_ID.cloudfunctions.net/renewWatch?token=YO
 
 **Query Parameters:**
 
-| Parameter | Type   | Default  | Description                                      |
-| --------- | ------ | -------- | ------------------------------------------------ |
-| `token`   | string | required | API authentication token                         |
-| `hours`   | number | `24`     | Time window in hours to fetch emails from        |
+| Parameter | Type   | Default  | Description                               |
+| --------- | ------ | -------- | ----------------------------------------- |
+| `token`   | string | required | API authentication token                  |
+| `hours`   | number | `24`     | Time window in hours to fetch emails from |
 
 **Examples:**
 

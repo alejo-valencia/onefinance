@@ -2,7 +2,7 @@ import { onSchedule } from "firebase-functions/v2/scheduler";
 import { onRequest, HttpsOptions } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
 import { v4 as uuidv4 } from "uuid";
-import { COLLECTIONS } from "../types";
+import { COLLECTIONS, LogEntry } from "../types";
 import { getErrorMessage, validateAuth, isFirestoreIndexError } from "../utils";
 import {
   processTransactionWithAgents,
@@ -24,7 +24,6 @@ type ProcessJobStatus = "pending" | "running" | "completed" | "failed";
 
 interface ProcessJob {
   status: ProcessJobStatus;
-  limit: number;
   processed: number;
   total: number;
   remaining: number;
@@ -34,6 +33,7 @@ interface ProcessJob {
   createdAt: FirebaseFirestore.FieldValue | FirebaseFirestore.Timestamp;
   startedAt?: FirebaseFirestore.FieldValue | FirebaseFirestore.Timestamp;
   completedAt?: FirebaseFirestore.FieldValue | FirebaseFirestore.Timestamp;
+  logs?: LogEntry[];
 }
 
 interface StartProcessResponse {
@@ -98,9 +98,18 @@ async function claimEmailForProcessing(emailId: string): Promise<boolean> {
       return false;
     }
 
+    const logEntry: LogEntry = {
+      timestamp: admin.firestore.Timestamp.now(),
+      event: "processing_started",
+      details: {
+        lockExpiredAndReclaimed: lockExpired,
+      },
+    };
+
     tx.update(emailRef, {
       processing: true,
       processingStartedAt: admin.firestore.FieldValue.serverTimestamp(),
+      logs: admin.firestore.FieldValue.arrayUnion(logEntry),
     });
 
     return true;
@@ -108,10 +117,23 @@ async function claimEmailForProcessing(emailId: string): Promise<boolean> {
 }
 
 async function releaseEmailProcessing(emailId: string): Promise<void> {
-  await admin.firestore().collection(COLLECTIONS.EMAILS).doc(emailId).update({
-    processing: false,
-    processingStartedAt: admin.firestore.FieldValue.delete(),
-  });
+  const releaseLog: LogEntry = {
+    timestamp: admin.firestore.Timestamp.now(),
+    event: "processing_released",
+    details: {
+      reason: "error_during_processing",
+    },
+  };
+
+  await admin
+    .firestore()
+    .collection(COLLECTIONS.EMAILS)
+    .doc(emailId)
+    .update({
+      processing: false,
+      processingStartedAt: admin.firestore.FieldValue.delete(),
+      logs: admin.firestore.FieldValue.arrayUnion(releaseLog),
+    });
 }
 
 async function processEmailDocument(
@@ -121,9 +143,25 @@ async function processEmailDocument(
   const subject = emailData.subject as string;
   const body = emailData.body as string;
 
+  const aiProcessingStartTime = Date.now();
   const result = await processTransactionWithAgents(subject, body);
+  const aiProcessingDurationMs = Date.now() - aiProcessingStartTime;
 
   const transactionId = uuidv4();
+  const now = admin.firestore.FieldValue.serverTimestamp();
+  const logTimestamp = admin.firestore.Timestamp.now();
+
+  const transactionLog: LogEntry = {
+    timestamp: logTimestamp,
+    event: "transaction_created",
+    details: {
+      emailId,
+      aiProcessingDurationMs,
+      classification: result.classification,
+      categorization: result.categorization,
+    },
+  };
+
   await admin
     .firestore()
     .collection(COLLECTIONS.TRANSACTIONS)
@@ -136,14 +174,31 @@ async function processEmailDocument(
       timeExtraction: result.timeExtraction,
       internal_movement: false,
       internal_movement_checked: false,
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      createdAt: now,
+      logs: [transactionLog],
     });
 
-  await admin.firestore().collection(COLLECTIONS.EMAILS).doc(emailId).update({
-    processed: true,
-    processing: false,
-    processingStartedAt: admin.firestore.FieldValue.delete(),
-  });
+  const emailCompletionLog: LogEntry = {
+    timestamp: logTimestamp,
+    event: "processing_completed",
+    details: {
+      transactionId,
+      aiProcessingDurationMs,
+      shouldTrack: result.classification.should_track,
+    },
+  };
+
+  await admin
+    .firestore()
+    .collection(COLLECTIONS.EMAILS)
+    .doc(emailId)
+    .update({
+      processed: true,
+      processing: false,
+      processingStartedAt: admin.firestore.FieldValue.delete(),
+      processedAt: now,
+      logs: admin.firestore.FieldValue.arrayUnion(emailCompletionLog),
+    });
 }
 
 interface QueueProcessResult {
@@ -216,12 +271,30 @@ async function detectAndFlagInternalMovements(): Promise<{
   const internalMovementIds = new Set(result.internal_movement_ids);
   let batch = admin.firestore().batch();
   let batchCount = 0;
+  const logTimestamp = admin.firestore.Timestamp.now();
 
   for (const doc of snapshot.docs) {
     const isInternal = internalMovementIds.has(doc.id);
+    const matchingPair = isInternal
+      ? result.pairs.find(
+          (p) => p.outgoing_id === doc.id || p.incoming_id === doc.id
+        )
+      : undefined;
+
+    const internalMovementLog: LogEntry = {
+      timestamp: logTimestamp,
+      event: "internal_movement_checked",
+      details: {
+        isInternalMovement: isInternal,
+        pairReason: matchingPair?.reason,
+        notes: result.notes,
+      },
+    };
+
     batch.update(doc.ref, {
       internal_movement: isInternal,
       internal_movement_checked: true,
+      logs: admin.firestore.FieldValue.arrayUnion(internalMovementLog),
     });
     batchCount++;
 
@@ -295,7 +368,10 @@ async function runQueueProcessor(
       await processEmailDocument(doc.id, doc.data());
       processedCount++;
     } catch (error) {
-      console.error(`Error processing email ${doc.id}:`, getErrorMessage(error));
+      console.error(
+        `Error processing email ${doc.id}:`,
+        getErrorMessage(error)
+      );
       await releaseEmailProcessing(doc.id);
     }
   }
@@ -330,7 +406,7 @@ async function runQueueProcessor(
   };
 }
 
-async function runJobProcessor(jobId: string, limit: number): Promise<void> {
+async function runJobProcessor(jobId: string): Promise<void> {
   const jobRef = admin
     .firestore()
     .collection(COLLECTIONS.PROCESS_JOBS)
@@ -339,9 +415,16 @@ async function runJobProcessor(jobId: string, limit: number): Promise<void> {
   const timeoutMs = MAX_TIMEOUT_SECONDS * 1000 - TIMEOUT_BUFFER_MS;
 
   try {
+    const runningLog: LogEntry = {
+      timestamp: admin.firestore.Timestamp.now(),
+      event: "job_started",
+      details: {},
+    };
+
     await jobRef.update({
       status: "running",
       startedAt: admin.firestore.FieldValue.serverTimestamp(),
+      logs: admin.firestore.FieldValue.arrayUnion(runningLog),
     });
 
     let snapshot;
@@ -350,14 +433,23 @@ async function runJobProcessor(jobId: string, limit: number): Promise<void> {
         .firestore()
         .collection(COLLECTIONS.EMAILS)
         .where("processed", "==", false)
-        .limit(limit)
         .get();
     } catch (error) {
       if (isFirestoreIndexError(error)) {
+        const failedLog: LogEntry = {
+          timestamp: admin.firestore.Timestamp.now(),
+          event: "job_failed",
+          details: {
+            reason: "firestore_index_error",
+            error: getErrorMessage(error),
+          },
+        };
+
         await jobRef.update({
           status: "failed",
           error: getErrorMessage(error),
           completedAt: admin.firestore.FieldValue.serverTimestamp(),
+          logs: admin.firestore.FieldValue.arrayUnion(failedLog),
         });
         return;
       }
@@ -370,6 +462,16 @@ async function runJobProcessor(jobId: string, limit: number): Promise<void> {
 
     if (snapshot.empty) {
       const internalResult = await detectAndFlagInternalMovements();
+      const completedLog: LogEntry = {
+        timestamp: admin.firestore.Timestamp.now(),
+        event: "job_completed",
+        details: {
+          reason: "no_emails_to_process",
+          internalMovementsDetected: internalResult.count,
+          durationMs: Date.now() - startTime,
+        },
+      };
+
       await jobRef.update({
         status: "completed",
         processed: 0,
@@ -377,6 +479,7 @@ async function runJobProcessor(jobId: string, limit: number): Promise<void> {
         internalMovementsDetected: internalResult.count,
         error: internalResult.indexError,
         completedAt: admin.firestore.FieldValue.serverTimestamp(),
+        logs: admin.firestore.FieldValue.arrayUnion(completedLog),
       });
       return;
     }
@@ -408,7 +511,10 @@ async function runJobProcessor(jobId: string, limit: number): Promise<void> {
           processed: processedCount,
         });
       } catch (error) {
-        console.error(`Error processing email ${doc.id}:`, getErrorMessage(error));
+        console.error(
+          `Error processing email ${doc.id}:`,
+          getErrorMessage(error)
+        );
         await releaseEmailProcessing(doc.id);
       }
     }
@@ -434,6 +540,18 @@ async function runJobProcessor(jobId: string, limit: number): Promise<void> {
       indexError = internalResult.indexError;
     }
 
+    const completedLog: LogEntry = {
+      timestamp: admin.firestore.Timestamp.now(),
+      event: "job_completed",
+      details: {
+        processedCount,
+        remainingCount,
+        timedOut,
+        internalMovementsDetected,
+        durationMs: Date.now() - startTime,
+      },
+    };
+
     await jobRef.update({
       status: "completed",
       processed: processedCount,
@@ -442,12 +560,23 @@ async function runJobProcessor(jobId: string, limit: number): Promise<void> {
       error: indexError,
       currentEmail: admin.firestore.FieldValue.delete(),
       completedAt: admin.firestore.FieldValue.serverTimestamp(),
+      logs: admin.firestore.FieldValue.arrayUnion(completedLog),
     });
   } catch (error) {
+    const failedLog: LogEntry = {
+      timestamp: admin.firestore.Timestamp.now(),
+      event: "job_failed",
+      details: {
+        error: getErrorMessage(error),
+        durationMs: Date.now() - startTime,
+      },
+    };
+
     await jobRef.update({
       status: "failed",
       error: getErrorMessage(error),
       completedAt: admin.firestore.FieldValue.serverTimestamp(),
+      logs: admin.firestore.FieldValue.arrayUnion(failedLog),
     });
   }
 }
@@ -485,23 +614,24 @@ export const processEmailQueue = onRequest(
     if (!(await validateAuth(req, res))) return;
 
     try {
-      const limitParam = req.query.limit;
-      const limit =
-        typeof limitParam === "string"
-          ? parseInt(limitParam, 10)
-          : DEFAULT_BATCH_SIZE;
-      const validLimit =
-        isNaN(limit) || limit < 1 ? DEFAULT_BATCH_SIZE : Math.min(limit, 100);
-
       const jobId = uuidv4();
+      const now = admin.firestore.FieldValue.serverTimestamp();
+      const createdLog: LogEntry = {
+        timestamp: admin.firestore.Timestamp.now(),
+        event: "job_created",
+        details: {
+          triggeredBy: "http_request",
+        },
+      };
+
       const jobData: ProcessJob = {
         status: "pending",
-        limit: validLimit,
         processed: 0,
         total: 0,
         remaining: 0,
         internalMovementsDetected: 0,
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        createdAt: now,
+        logs: [createdLog],
       };
 
       await admin
@@ -510,14 +640,14 @@ export const processEmailQueue = onRequest(
         .doc(jobId)
         .set(jobData);
 
-      runJobProcessor(jobId, validLimit).catch(() => {
+      runJobProcessor(jobId).catch(() => {
         // Background job errors are stored in the job document
       });
 
       const response: StartProcessResponse = {
         success: true,
         jobId,
-        message: `Email queue processing started with limit of ${validLimit}. Track progress using the job ID.`,
+        message: `Email queue processing started. Track progress using the job ID.`,
       };
       res.json(response);
     } catch (error) {
@@ -545,32 +675,61 @@ export const getProcessStatus = onRequest(
     if (!(await validateAuth(req, res))) return;
 
     try {
-      const jobId = req.query.jobId;
+      let jobId = req.query.jobId;
+      let jobDoc;
+
       if (!jobId || typeof jobId !== "string") {
-        res.status(400).json({
-          success: false,
-          error: "Invalid request",
-          message: "Missing required query parameter: jobId",
-        });
-        return;
+        // Find the latest running or pending job
+        const runningSnapshot = await admin
+          .firestore()
+          .collection(COLLECTIONS.PROCESS_JOBS)
+          .where("status", "in", ["pending", "running"])
+          .orderBy("createdAt", "desc")
+          .limit(1)
+          .get();
+
+        if (runningSnapshot.empty) {
+          // No running jobs, get the most recent completed/failed job
+          const latestSnapshot = await admin
+            .firestore()
+            .collection(COLLECTIONS.PROCESS_JOBS)
+            .orderBy("createdAt", "desc")
+            .limit(1)
+            .get();
+
+          if (latestSnapshot.empty) {
+            res.status(404).json({
+              success: false,
+              error: "No jobs found",
+              message: "No processing jobs found. Start a new job first.",
+            });
+            return;
+          }
+
+          jobDoc = latestSnapshot.docs[0];
+          jobId = jobDoc.id;
+        } else {
+          jobDoc = runningSnapshot.docs[0];
+          jobId = jobDoc.id;
+        }
+      } else {
+        jobDoc = await admin
+          .firestore()
+          .collection(COLLECTIONS.PROCESS_JOBS)
+          .doc(jobId)
+          .get();
+
+        if (!jobDoc.exists) {
+          res.status(404).json({
+            success: false,
+            error: "Job not found",
+            message: `No processing job found with ID: ${jobId}`,
+          });
+          return;
+        }
       }
 
-      const jobDoc = await admin
-        .firestore()
-        .collection(COLLECTIONS.PROCESS_JOBS)
-        .doc(jobId)
-        .get();
-
-      if (!jobDoc.exists) {
-        res.status(404).json({
-          success: false,
-          error: "Job not found",
-          message: `No processing job found with ID: ${jobId}`,
-        });
-        return;
-      }
-
-      const data = jobDoc.data() as ProcessJob;
+      const data = (jobDoc.data ? jobDoc.data() : jobDoc) as ProcessJob;
 
       const statusMessages: Record<ProcessJobStatus, string> = {
         pending: "Job is queued and waiting to start",

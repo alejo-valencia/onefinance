@@ -263,17 +263,6 @@ function setupEventListeners() {
 }
 
 /**
- * Update dynamic content that depends on config
- */
-function updateDynamicContent() {
-  // Update webhook URL display
-  const webhookUrlElement = document.getElementById("webhookUrl");
-  if (webhookUrlElement) {
-    webhookUrlElement.textContent = config.functionsBaseUrl + "/gmailWebhook";
-  }
-}
-
-/**
  * Main initialization
  */
 async function init() {
@@ -287,9 +276,6 @@ async function init() {
       authDomain: config.firebaseAuthDomain,
       projectId: config.firebaseProjectId,
     });
-
-    // Update dynamic content
-    updateDynamicContent();
 
     // Set up auth listener
     setupAuthListener();

@@ -37,6 +37,12 @@ export interface EmailHeaders {
   date: string;
 }
 
+export interface LogEntry {
+  timestamp: FirebaseFirestore.Timestamp;
+  event: string;
+  details?: Record<string, unknown>;
+}
+
 export interface EmailDocument {
   subject: string;
   from: string;
@@ -46,6 +52,8 @@ export interface EmailDocument {
   processed: boolean;
   processing?: boolean;
   processingStartedAt?: FirebaseFirestore.FieldValue;
+  processedAt?: FirebaseFirestore.FieldValue;
+  logs?: LogEntry[];
 }
 
 export interface ProcessedEmail {

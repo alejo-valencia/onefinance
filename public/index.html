@@ -122,23 +122,14 @@
 
           <section class="endpoint-card">
             <h2>📥 Process Email Queue</h2>
-            <p>Start async processing of unprocessed emails in the queue.</p>
+            <p>
+              Start async processing of all unprocessed emails in the queue.
+            </p>
             <form
               class="endpoint-form"
               data-endpoint="/processEmailQueue"
               data-method="POST"
             >
-              <div class="form-group">
-                <label for="limit">Batch Limit (optional)</label>
-                <input
-                  type="number"
-                  name="limit"
-                  id="limit"
-                  placeholder="10"
-                  min="1"
-                  max="100"
-                />
-              </div>
               <button type="submit" class="btn btn-primary">
                 Start Queue Processing
               </button>
@@ -148,20 +139,21 @@
 
           <section class="endpoint-card">
             <h2>📊 Get Process Status</h2>
-            <p>Check the status of a processing job.</p>
+            <p>Check the status of the latest or a specific processing job.</p>
             <form
               class="endpoint-form"
               data-endpoint="/getProcessStatus"
               data-method="GET"
             >
               <div class="form-group">
-                <label for="jobId">Job ID</label>
+                <label for="jobId"
+                  >Job ID (optional - defaults to latest)</label
+                >
                 <input
                   type="text"
                   name="jobId"
                   id="jobId"
-                  placeholder="Enter job ID"
-                  required
+                  placeholder="Leave empty for latest job"
                 />
               </div>
               <button type="submit" class="btn btn-primary">
@@ -184,17 +176,6 @@
               </button>
             </form>
             <div class="result hidden"></div>
-          </section>
-
-          <section class="endpoint-card info-card">
-            <h2>📡 Gmail Webhook</h2>
-            <p>
-              This endpoint receives push notifications from Gmail. It's
-              automatically triggered by Google's Pub/Sub.
-            </p>
-            <div class="info-box">
-              <strong>Endpoint:</strong> <code id="webhookUrl"></code>
-            </div>
           </section>
         </div>
       </div>

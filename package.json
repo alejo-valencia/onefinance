@@ -1,6 +1,7 @@
 {
   "scripts": {
-    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json}\""
+    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json}\"",
+    "deploy": "cd functions && npm run deploy && cd ../web && npm run build && firebase deploy --only hosting"
   },
   "dependencies": {
     "react-router-dom": "^7.12.0"

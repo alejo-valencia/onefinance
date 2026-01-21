@@ -362,8 +362,7 @@ interface Transaction {
     transaction_datetime: string;
   };
   internal_movement?: boolean;
-  source?: "image_extraction" | "email";
-  extractedFromImage?: boolean;
+  source?: "email";
   emailId?: string;
 }
 
@@ -671,22 +670,13 @@ function TransactionList() {
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
-                        {t.source === "image_extraction" ||
-                        t.extractedFromImage ? (
-                          <span className="text-xs text-purple-400 bg-purple-500/10 px-1.5 py-0.5 rounded flex-shrink-0">
-                            Image
+                        {(t.emailId || t.source === "email" || !t.source) && (
+                          <span className="text-xs text-blue-400 bg-blue-500/10 px-1.5 py-0.5 rounded shrink-0">
+                            Email
                           </span>
-                        ) : (
-                          (t.emailId ||
-                            t.source === "email" ||
-                            (!t.source && !t.extractedFromImage)) && (
-                            <span className="text-xs text-blue-400 bg-blue-500/10 px-1.5 py-0.5 rounded flex-shrink-0">
-                              Email
-                            </span>
-                          )
                         )}
                         {t.internal_movement && (
-                          <span className="text-xs text-yellow-500 bg-yellow-500/10 px-1.5 py-0.5 rounded flex-shrink-0">
+                          <span className="text-xs text-yellow-500 bg-yellow-500/10 px-1.5 py-0.5 rounded shrink-0">
                             Internal
                           </span>
                         )}

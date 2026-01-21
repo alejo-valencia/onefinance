@@ -81,7 +81,7 @@ export const oauthCallback = onRequest(async (req, res): Promise<void> => {
 
     const expirationMs = parseInt(watchResult.data.expiration ?? "0", 10);
     const expiresIn = Math.round(
-      (expirationMs - Date.now()) / (1000 * 60 * 60 * 24)
+      (expirationMs - Date.now()) / (1000 * 60 * 60 * 24),
     );
 
     res.send(`

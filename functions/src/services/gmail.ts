@@ -15,7 +15,7 @@ const TOKEN_REFRESH_BUFFER_MS = 5 * 60 * 1000;
 export const oauth2Client = new google.auth.OAuth2(
   OAUTH_CONFIG.clientId,
   OAUTH_CONFIG.clientSecret,
-  OAUTH_CONFIG.redirectUri
+  OAUTH_CONFIG.redirectUri,
 );
 
 function ensureGmailOAuthEnv(): void {
@@ -40,7 +40,7 @@ oauth2Client.on(
     } catch {
       // Token save failed - will retry on next refresh
     }
-  }
+  },
 );
 
 function isTokenExpiredOrExpiring(tokens: GmailTokens): boolean {
@@ -78,14 +78,14 @@ export async function getGmailClient(): Promise<GmailClientResult> {
 
   if (!doc.exists) {
     throw new Error(
-      "Gmail not configured. Please authorize first via the dashboard."
+      "Gmail not configured. Please authorize first via the dashboard.",
     );
   }
 
   const data = doc.data() as GmailConfig | undefined;
   if (!data?.tokens) {
     throw new Error(
-      "Gmail tokens not found. Please authorize first via the dashboard."
+      "Gmail tokens not found. Please authorize first via the dashboard.",
     );
   }
 
@@ -114,7 +114,7 @@ export async function getTokensFromCode(code: string): Promise<GmailTokens> {
 }
 
 export function extractEmailHeaders(
-  message: gmail_v1.Schema$Message
+  message: gmail_v1.Schema$Message,
 ): EmailHeaders {
   const headers = message.payload?.headers || [];
   return {

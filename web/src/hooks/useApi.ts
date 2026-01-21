@@ -13,7 +13,7 @@ export function useApi() {
       endpoint: string,
       method: HttpMethod = "GET",
       body?: Record<string, unknown>,
-      queryParams?: Record<string, string>
+      queryParams?: Record<string, string>,
     ) => {
       const token = await getIdToken();
       if (!token) {
@@ -62,7 +62,7 @@ export function useApi() {
 
       return data;
     },
-    [getIdToken, config]
+    [getIdToken, config],
   );
 
   return { callApi };

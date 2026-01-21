@@ -1,18 +1,18 @@
 import OpenAI from "openai";
 import { ASSISTANT_IDS } from "../config/constants";
-import { TransactionClassificationResponse } from "./agents/classification";
 import { TransactionCategorizationResponse } from "./agents/categorization";
-import { TransactionTimeExtractionResponse } from "./agents/timeExtraction";
+import { TransactionClassificationResponse } from "./agents/classification";
 import {
   InternalMovementDetectionResponse,
   TransactionSummary,
 } from "./agents/internalMovement";
+import { TransactionTimeExtractionResponse } from "./agents/timeExtraction";
 
 // Re-export types for consumers
-export * from "./agents/classification";
 export * from "./agents/categorization";
-export * from "./agents/timeExtraction";
+export * from "./agents/classification";
 export * from "./agents/internalMovement";
+export * from "./agents/timeExtraction";
 
 export interface TransactionProcessingResult {
   classification: TransactionClassificationResponse;
@@ -69,7 +69,7 @@ async function delay(ms: number): Promise<void> {
 
 async function withRetry<T>(
   operation: () => Promise<T>,
-  operationName: string
+  operationName: string,
 ): Promise<T> {
   let lastError: Error | null = null;
 
@@ -77,7 +77,7 @@ async function withRetry<T>(
     try {
       if (attempt > 1) {
         console.log(
-          `[OpenAI] ${operationName} - Retry attempt ${attempt}/${MAX_RETRIES}`
+          `[OpenAI] ${operationName} - Retry attempt ${attempt}/${MAX_RETRIES}`,
         );
       }
       return await operation();
@@ -91,12 +91,12 @@ async function withRetry<T>(
           message: lastError.message,
           isRetryable,
           willRetry: isRetryable && attempt < MAX_RETRIES,
-        }
+        },
       );
 
       if (!isRetryable || attempt === MAX_RETRIES) {
         console.error(
-          `[OpenAI] ${operationName} - Giving up after ${attempt} attempts`
+          `[OpenAI] ${operationName} - Giving up after ${attempt} attempts`,
         );
         throw lastError;
       }
@@ -112,7 +112,7 @@ async function withRetry<T>(
 
 async function runAssistant(
   assistantId: string,
-  userMessage: string
+  userMessage: string,
 ): Promise<string> {
   const assistantShortId = assistantId.slice(-6);
   const msgPreview =
@@ -147,7 +147,7 @@ async function runAssistant(
         runId: run.id,
         threadId: run.thread_id,
         initialStatus: run.status,
-      }
+      },
     );
 
     // Manual polling with timeout safety
@@ -169,7 +169,7 @@ async function runAssistant(
           {
             lastStatus: runStatus.status,
             runId: run.id,
-          }
+          },
         );
         // Try to cancel the run if possible so it doesn't continue consuming resources
         try {
@@ -191,7 +191,7 @@ async function runAssistant(
         throw new Error(
           `Assistant run failed: ${
             runStatus.last_error?.message || "Unknown error"
-          }`
+          }`,
         );
       }
       if (
@@ -208,7 +208,7 @@ async function runAssistant(
       }
       if (runStatus.status === "requires_action") {
         console.error(
-          `[OpenAI] ${assistantShortId} - Unexpected requires_action state`
+          `[OpenAI] ${assistantShortId} - Unexpected requires_action state`,
         );
         // In case the assistant is trying to call a tool, we fail fast
         try {
@@ -219,14 +219,14 @@ async function runAssistant(
           // Ignore cancel errors
         }
         throw new Error(
-          "Assistant entered 'requires_action' state (tool calls not supported in this implementation)"
+          "Assistant entered 'requires_action' state (tool calls not supported in this implementation)",
         );
       }
 
       // Log status every 5 polls (2.5 seconds) to avoid log spam
       if (pollCount % 5 === 0) {
         console.log(
-          `[OpenAI] ${assistantShortId} - Polling... status=${runStatus.status}, elapsed=${elapsedMs}ms, polls=${pollCount}`
+          `[OpenAI] ${assistantShortId} - Polling... status=${runStatus.status}, elapsed=${elapsedMs}ms, polls=${pollCount}`,
         );
       }
 
@@ -241,7 +241,7 @@ async function runAssistant(
         // Log polling errors but continue - transient network issues shouldn't fail the whole run
         console.warn(
           `[OpenAI] ${assistantShortId} - Polling error (will retry):`,
-          pollError instanceof Error ? pollError.message : "Unknown"
+          pollError instanceof Error ? pollError.message : "Unknown",
         );
         await delay(POLLING_INTERVAL_MS * 2);
         runStatus = await client.beta.threads.runs.retrieve(run.id, {
@@ -252,7 +252,7 @@ async function runAssistant(
 
     const pollingDuration = Date.now() - startTime;
     console.log(
-      `[OpenAI] ${assistantShortId} - Run completed in ${pollingDuration}ms (${pollCount} polls)`
+      `[OpenAI] ${assistantShortId} - Run completed in ${pollingDuration}ms (${pollCount} polls)`,
     );
 
     // Retrieve messages
@@ -269,7 +269,7 @@ async function runAssistant(
       lastMessage.content.length === 0
     ) {
       console.error(
-        `[OpenAI] ${assistantShortId} - No response content from assistant`
+        `[OpenAI] ${assistantShortId} - No response content from assistant`,
       );
       throw new Error("No response from assistant");
     }
@@ -277,7 +277,7 @@ async function runAssistant(
     const textContent = lastMessage.content[0];
     if (textContent.type !== "text") {
       console.error(
-        `[OpenAI] ${assistantShortId} - Response is not text, type: ${textContent.type}`
+        `[OpenAI] ${assistantShortId} - Response is not text, type: ${textContent.type}`,
       );
       throw new Error("Assistant response is not text");
     }
@@ -293,7 +293,7 @@ async function runAssistant(
       {
         responseLength: textContent.text.value.length,
         preview: responsePreview,
-      }
+      },
     );
 
     return textContent.text.value;
@@ -307,49 +307,49 @@ function parseJSONResponse<T>(responseText: string): T {
     return JSON.parse(cleanText) as T;
   } catch (e: any) {
     throw new Error(
-      `Failed to parse JSON response from assistant: ${e.message}. Response: ${responseText}`
+      `Failed to parse JSON response from assistant: ${e.message}. Response: ${responseText}`,
     );
   }
 }
 
 export async function classifyTransaction(
   subject: string,
-  body: string
+  body: string,
 ): Promise<TransactionClassificationResponse> {
   const userMessage = JSON.stringify({ subject, body });
   const responseText = await runAssistant(
     ASSISTANT_IDS.classification,
-    userMessage
+    userMessage,
   );
   return parseJSONResponse<TransactionClassificationResponse>(responseText);
 }
 
 export async function categorizeTransaction(
   subject: string,
-  body: string
+  body: string,
 ): Promise<TransactionCategorizationResponse> {
   const userMessage = JSON.stringify({ subject, body });
   const responseText = await runAssistant(
     ASSISTANT_IDS.categorization,
-    userMessage
+    userMessage,
   );
   return parseJSONResponse<TransactionCategorizationResponse>(responseText);
 }
 
 export async function extractTransactionTime(
   subject: string,
-  body: string
+  body: string,
 ): Promise<TransactionTimeExtractionResponse> {
   const userMessage = JSON.stringify({ subject, body });
   const responseText = await runAssistant(
     ASSISTANT_IDS.timeExtraction,
-    userMessage
+    userMessage,
   );
   return parseJSONResponse<TransactionTimeExtractionResponse>(responseText);
 }
 
 export async function detectInternalMovements(
-  transactions: TransactionSummary[]
+  transactions: TransactionSummary[],
 ): Promise<InternalMovementDetectionResponse> {
   if (transactions.length === 0) {
     return {
@@ -362,14 +362,14 @@ export async function detectInternalMovements(
   const userMessage = JSON.stringify(transactions);
   const responseText = await runAssistant(
     ASSISTANT_IDS.internalMovement,
-    userMessage
+    userMessage,
   );
   return parseJSONResponse<InternalMovementDetectionResponse>(responseText);
 }
 
 export async function processTransactionWithAgents(
   subject: string,
-  body: string
+  body: string,
 ): Promise<TransactionProcessingResult> {
   const startTime = Date.now();
   const subjectPreview =
@@ -380,7 +380,7 @@ export async function processTransactionWithAgents(
     {
       subject: subjectPreview,
       bodyLength: body.length,
-    }
+    },
   );
 
   try {
@@ -398,7 +398,7 @@ export async function processTransactionWithAgents(
         shouldTrack: classification.should_track,
         category: categorization.category,
         transactionDatetime: timeExtraction.transaction_datetime,
-      }
+      },
     );
 
     return {
@@ -413,7 +413,7 @@ export async function processTransactionWithAgents(
       {
         error: error instanceof Error ? error.message : String(error),
         subject: subjectPreview,
-      }
+      },
     );
     throw error;
   }

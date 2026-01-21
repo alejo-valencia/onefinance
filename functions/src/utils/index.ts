@@ -19,14 +19,14 @@ export function requireEnvVars(vars: string[]): void {
   const missing = vars.filter((key) => !process.env[key]);
   if (missing.length > 0) {
     throw new Error(
-      `Missing required environment variables: ${missing.join(", ")}`
+      `Missing required environment variables: ${missing.join(", ")}`,
     );
   }
 }
 
 export async function validateAuth(
   req: https.Request,
-  res: { status: (code: number) => { json: (body: unknown) => void } }
+  res: { status: (code: number) => { json: (body: unknown) => void } },
 ): Promise<boolean> {
   const authHeader = req.headers.authorization;
   const authorizedEmail = process.env.AUTHORIZED_EMAIL;

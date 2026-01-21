@@ -17,7 +17,7 @@ export const gmailWebhook = onRequest(async (req, res): Promise<void> => {
     }
 
     const decodedData: GmailPubSubNotification = JSON.parse(
-      Buffer.from(message.data, "base64").toString("utf-8")
+      Buffer.from(message.data, "base64").toString("utf-8"),
     );
 
     const { historyId } = decodedData;
@@ -41,7 +41,7 @@ export const gmailWebhook = onRequest(async (req, res): Promise<void> => {
                 (m): m is gmail_v1.Schema$Message =>
                   m !== undefined &&
                   m.labelIds != null &&
-                  m.labelIds.includes(TARGET_LABEL)
+                  m.labelIds.includes(TARGET_LABEL),
               );
             messages.push(...labeledMessages);
           }

@@ -1,5 +1,11 @@
 {
+  "scripts": {
+    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json}\""
+  },
   "dependencies": {
     "react-router-dom": "^7.12.0"
+  },
+  "devDependencies": {
+    "prettier": "^3.8.1"
   }
 }

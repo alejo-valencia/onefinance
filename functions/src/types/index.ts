@@ -5,6 +5,7 @@ export const COLLECTIONS = {
   EMAILS: "emails",
   TRANSACTIONS: "transactions",
   PROCESS_JOBS: "process_jobs",
+  SYNC_STATUS: "sync_status",
 } as const;
 
 export const CONFIG_DOCS = {
@@ -126,4 +127,25 @@ export function hasValidId(
   msg: gmail_v1.Schema$Message | undefined,
 ): msg is gmail_v1.Schema$Message & { id: string } {
   return msg !== undefined && typeof msg.id === "string";
+}
+
+export type SyncStatus =
+  | "idle"
+  | "fetching"
+  | "processing"
+  | "completed"
+  | "failed";
+
+export interface SyncStatusDocument {
+  status: SyncStatus;
+  triggeredAt: FirebaseFirestore.FieldValue | FirebaseFirestore.Timestamp;
+  completedAt?: FirebaseFirestore.FieldValue | FirebaseFirestore.Timestamp;
+  hoursToFetch: number;
+  totalEmailsFetched: number;
+  newEmails: number;
+  existingEmails: number;
+  emailsQueued: number;
+  emailsProcessed: number;
+  emailsRemaining: number;
+  error?: string;
 }

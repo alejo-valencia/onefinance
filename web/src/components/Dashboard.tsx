@@ -1,20 +1,21 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
 import {
-  format,
-  startOfDay,
-  endOfDay,
-  startOfWeek,
-  endOfWeek,
-  startOfMonth,
-  endOfMonth,
   addDays,
-  addWeeks,
   addMonths,
-  subDays,
-  subWeeks,
-  subMonths,
+  addWeeks,
+  endOfDay,
+  endOfMonth,
+  endOfWeek,
+  format,
+  formatDistanceToNow,
   getDate,
+  startOfDay,
+  startOfMonth,
+  startOfWeek,
+  subDays,
+  subMonths,
+  subWeeks,
 } from "date-fns";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useApi } from "../hooks/useApi";
 
 const CATEGORIES: Record<string, string[]> = {
@@ -82,6 +83,267 @@ const CATEGORIES: Record<string, string[]> = {
   other: ["uncategorized"],
 };
 
+type SyncStatus = "idle" | "fetching" | "processing" | "completed" | "failed";
+
+interface SyncStatusData {
+  status: SyncStatus;
+  triggeredAt?: string;
+  completedAt?: string;
+  hoursToFetch: number;
+  totalEmailsFetched: number;
+  newEmails: number;
+  existingEmails: number;
+  emailsQueued: number;
+  emailsProcessed: number;
+  emailsRemaining: number;
+  error?: string;
+}
+
+function SyncEmail({ onSuccess }: { onSuccess: () => void }) {
+  const { callApi } = useApi();
+  const [syncing, setSyncing] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<SyncStatusData | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const pollIntervalRef = useRef<number | null>(null);
+
+  const fetchSyncStatus = useCallback(async () => {
+    try {
+      const response = await callApi("/getSyncStatus", "GET");
+      if (response.success) {
+        setSyncStatus(response);
+
+        // Check if we need to stop polling
+        if (
+          response.status === "completed" ||
+          response.status === "failed" ||
+          response.status === "idle"
+        ) {
+          if (pollIntervalRef.current) {
+            clearInterval(pollIntervalRef.current);
+            pollIntervalRef.current = null;
+          }
+          setSyncing(false);
+
+          // Refresh transactions if sync completed
+          if (response.status === "completed" && response.emailsProcessed > 0) {
+            onSuccess();
+          }
+        }
+      }
+    } catch (err) {
+      console.error("Failed to fetch sync status", err);
+    }
+  }, [callApi, onSuccess]);
+
+  // Initial fetch and start polling if needed
+  useEffect(() => {
+    fetchSyncStatus();
+
+    return () => {
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+      }
+    };
+  }, [fetchSyncStatus]);
+
+  // Start polling when syncing
+  useEffect(() => {
+    if (
+      syncStatus?.status === "fetching" ||
+      syncStatus?.status === "processing"
+    ) {
+      setSyncing(true);
+      if (!pollIntervalRef.current) {
+        pollIntervalRef.current = window.setInterval(fetchSyncStatus, 3000);
+      }
+    }
+  }, [syncStatus?.status, fetchSyncStatus]);
+
+  const handleSync = async () => {
+    setSyncing(true);
+    setError(null);
+
+    try {
+      const response = await callApi("/syncFromMail", "POST");
+
+      if (response.success) {
+        // Start polling for status updates
+        fetchSyncStatus();
+        if (!pollIntervalRef.current) {
+          pollIntervalRef.current = window.setInterval(fetchSyncStatus, 3000);
+        }
+      } else {
+        setError(response.error || "Failed to start sync");
+        setSyncing(false);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to sync emails");
+      setSyncing(false);
+    }
+  };
+
+  const getButtonText = () => {
+    if (!syncStatus || syncStatus.status === "idle") {
+      return "Sync Now";
+    }
+
+    switch (syncStatus.status) {
+      case "fetching":
+        return "Fetching emails...";
+      case "processing":
+        if (syncStatus.emailsRemaining > 0) {
+          return `Processing (${syncStatus.emailsProcessed}/${syncStatus.emailsQueued})`;
+        }
+        return "Continue Processing";
+      case "completed":
+        return "Sync Now";
+      case "failed":
+        return "Retry Sync";
+      default:
+        return "Sync Now";
+    }
+  };
+
+  const isButtonDisabled = () => {
+    return (
+      syncStatus?.status === "fetching" ||
+      (syncStatus?.status === "processing" && syncStatus.emailsRemaining > 0)
+    );
+  };
+
+  const getStatusMessage = () => {
+    if (!syncStatus || syncStatus.status === "idle") {
+      return null;
+    }
+
+    if (syncStatus.status === "fetching") {
+      return `Fetching emails from the last ${syncStatus.hoursToFetch} hours...`;
+    }
+
+    if (syncStatus.status === "processing") {
+      return `Processing ${syncStatus.emailsRemaining} remaining of ${syncStatus.emailsQueued} emails`;
+    }
+
+    if (syncStatus.status === "completed") {
+      const timeAgo = syncStatus.triggeredAt
+        ? formatDistanceToNow(new Date(syncStatus.triggeredAt), {
+            addSuffix: true,
+          })
+        : "";
+      return `Last sync ${timeAgo}: ${syncStatus.newEmails} new emails processed`;
+    }
+
+    if (syncStatus.status === "failed") {
+      return `Sync failed: ${syncStatus.error}`;
+    }
+
+    return null;
+  };
+
+  return (
+    <div className="bg-white/5 p-4 rounded-lg mb-4">
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex-1">
+          <h4 className="text-white font-medium mb-1">Sync from Email</h4>
+          <p className="text-gray-400 text-sm">
+            Fetch new transaction emails and process them automatically
+          </p>
+        </div>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handleSync}
+            disabled={isButtonDisabled()}
+            className={`px-4 py-2 rounded-lg font-medium text-sm transition-colors flex items-center gap-2 ${
+              isButtonDisabled()
+                ? "bg-gray-600 text-gray-300 cursor-not-allowed"
+                : "bg-blue-600 hover:bg-blue-700 text-white"
+            }`}
+          >
+            {syncing ||
+            syncStatus?.status === "fetching" ||
+            syncStatus?.status === "processing" ? (
+              <>
+                <svg
+                  className="animate-spin h-4 w-4"
+                  xmlns="http://www.w3.org/2000/svg"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                >
+                  <circle
+                    className="opacity-25"
+                    cx="12"
+                    cy="12"
+                    r="10"
+                    stroke="currentColor"
+                    strokeWidth="4"
+                  />
+                  <path
+                    className="opacity-75"
+                    fill="currentColor"
+                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                  />
+                </svg>
+                {getButtonText()}
+              </>
+            ) : (
+              <>
+                <svg
+                  className="h-4 w-4"
+                  xmlns="http://www.w3.org/2000/svg"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                  />
+                </svg>
+                {getButtonText()}
+              </>
+            )}
+          </button>
+        </div>
+      </div>
+
+      {/* Status message */}
+      {getStatusMessage() && (
+        <div
+          className={`mt-3 p-3 rounded-lg text-sm ${
+            syncStatus?.status === "failed"
+              ? "bg-red-500/10 text-red-400"
+              : syncStatus?.status === "completed"
+                ? "bg-green-500/10 text-green-400"
+                : "bg-blue-500/10 text-blue-400"
+          }`}
+        >
+          {getStatusMessage()}
+          {syncStatus?.status === "processing" &&
+            syncStatus.emailsQueued > 0 && (
+              <div className="mt-2 w-full bg-gray-700 rounded-full h-2">
+                <div
+                  className="bg-blue-500 h-2 rounded-full transition-all duration-300"
+                  style={{
+                    width: `${(syncStatus.emailsProcessed / syncStatus.emailsQueued) * 100}%`,
+                  }}
+                />
+              </div>
+            )}
+        </div>
+      )}
+
+      {/* Error message */}
+      {error && (
+        <div className="mt-3 p-3 rounded-lg text-sm bg-red-500/10 text-red-400">
+          {error}
+        </div>
+      )}
+    </div>
+  );
+}
+
 interface Transaction {
   id: string;
   classification?: {
@@ -100,6 +362,9 @@ interface Transaction {
     transaction_datetime: string;
   };
   internal_movement?: boolean;
+  source?: "image_extraction" | "email";
+  extractedFromImage?: boolean;
+  emailId?: string;
 }
 
 type ViewMode = "day" | "week" | "month";
@@ -287,6 +552,9 @@ function TransactionList() {
 
   return (
     <div className="bg-white/5 p-6 rounded-lg mb-8 w-full">
+      {/* Sync Email Section */}
+      <SyncEmail onSuccess={fetchTransactions} />
+
       <div className="flex flex-col gap-4 mb-6">
         <div className="flex flex-col sm:flex-row justify-between items-center gap-4">
           <h3 className="text-xl font-bold text-white">Transactions</h3>
@@ -403,6 +671,20 @@ function TransactionList() {
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
+                        {t.source === "image_extraction" ||
+                        t.extractedFromImage ? (
+                          <span className="text-xs text-purple-400 bg-purple-500/10 px-1.5 py-0.5 rounded flex-shrink-0">
+                            Image
+                          </span>
+                        ) : (
+                          (t.emailId ||
+                            t.source === "email" ||
+                            (!t.source && !t.extractedFromImage)) && (
+                            <span className="text-xs text-blue-400 bg-blue-500/10 px-1.5 py-0.5 rounded flex-shrink-0">
+                              Email
+                            </span>
+                          )
+                        )}
                         {t.internal_movement && (
                           <span className="text-xs text-yellow-500 bg-yellow-500/10 px-1.5 py-0.5 rounded flex-shrink-0">
                             Internal

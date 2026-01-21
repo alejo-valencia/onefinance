@@ -9,7 +9,8 @@
     "start": "npm run shell",
     "deploy": "npm run build && firebase deploy --only functions",
     "logs": "firebase functions:log",
-    "lint": "eslint --ext .ts src/"
+    "lint": "eslint --ext .ts src/",
+    "format": "prettier --write \"src/**/*.ts\""
   },
   "engines": {
     "node": "24"

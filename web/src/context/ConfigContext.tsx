@@ -51,7 +51,7 @@ export function ConfigProvider({ children }: ConfigProviderProps) {
           !cfg.firebaseProjectId
         ) {
           throw new Error(
-            "Firebase configuration is incomplete. Check your environment variables."
+            "Firebase configuration is incomplete. Check your environment variables.",
           );
         }
 
@@ -66,7 +66,7 @@ export function ConfigProvider({ children }: ConfigProviderProps) {
         setConfig(cfg);
       } catch (err) {
         setError(
-          err instanceof Error ? err.message : "Failed to load configuration"
+          err instanceof Error ? err.message : "Failed to load configuration",
         );
       } finally {
         setLoading(false);

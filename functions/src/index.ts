@@ -16,6 +16,7 @@ import {
   detectDuplicateTransactions,
   resetInternalMovements,
 } from "./handlers/duplicates";
+import { syncFromMail, getSyncStatus } from "./handlers/sync";
 
 export {
   authGmail,
@@ -32,4 +33,6 @@ export {
   unprocessAllEmails,
   detectDuplicateTransactions,
   resetInternalMovements,
+  syncFromMail,
+  getSyncStatus,
 };
